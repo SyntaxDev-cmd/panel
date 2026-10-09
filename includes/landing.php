@@ -40,6 +40,7 @@ function lp_defaults() {
         'show_faq'       => '1',
         'allow_manual'   => '1',          // aceita servidor + usuario + senha alem do link
         'default_output' => 'ts',         // formato preferido quando o link nao diz (ts | m3u8)
+        'show_reseller'  => '1',          // aba "Revenda" na landing (login com o acesso do painel)
     );
 }
 
@@ -406,7 +407,7 @@ function lp_dns_find($ownerId, $base) {
     $dns = db_row("SELECT id FROM tbl_dns WHERE owner_id = ? AND (dns_base = ? OR dns_base = ? OR dns_backup = ?) ORDER BY (origin = 'site') ASC, id ASC LIMIT 1", array((int)$ownerId, $base, $base . '/', $base));
     return $dns ? (int)$dns['id'] : 0;
 }
-function lp_dns_for($ownerId, $base) {
+function lp_dns_for($ownerId, $base, $origin = LP_SOURCE) {
     $base = rtrim((string)$base, '/');
     $found = lp_dns_find($ownerId, $base);
     $dns = $found ? array('id' => $found) : null;
@@ -417,7 +418,7 @@ function lp_dns_for($ownerId, $base) {
     $host = parse_url($base, PHP_URL_HOST);
     // cliente = '' : esta DNS nao entra na lista de servidores dos apps no modo direto
     db_query("INSERT INTO tbl_dns (dns_title, dns_base, dns_backup, status, cliente, owner_id, partner_code, created_at, origin) VALUES (?, ?, '', 1, '', ?, ?, ?, ?)",
-        array('Site: ' . $host, $base, (int)$ownerId, lf_new_partner_code(), time(), LP_SOURCE));
+        array(($origin === LP_SOURCE ? 'Site: ' : '') . $host, $base, (int)$ownerId, lf_new_partner_code(), time(), $origin));
     return db_last_id();
 }
 
@@ -485,6 +486,7 @@ function lp_mac_state($mac) {
 function lp_mac_known($mac) {
     $mac = lf_norm_mac($mac);
     if ($mac === '') return false;
+    if (lp_mac_seen($mac)) return true;
     if (db_val("SELECT id FROM tbl_lp_lists WHERE mac = ? LIMIT 1", array($mac))) return true;
     if (db_val("SELECT id FROM tbl_devices WHERE mac = ? AND act_user <> '' LIMIT 1", array($mac))) return true;
     return (bool)db_val("SELECT id FROM tbl_lp_orders WHERE mac = ? AND status = 'approved' LIMIT 1", array($mac));
@@ -528,10 +530,52 @@ function lp_list_apply($mac, $listId) {
     if ($st['blocked']) return 'Este aparelho esta bloqueado. Fale com o suporte.';
     if ($st['source'] === 'panel') return 'Este aparelho e gerenciado pelo seu revendedor.';
     $dev = db_row("SELECT * FROM tbl_devices WHERE mac = ? AND act_source = ? ORDER BY act_updated DESC LIMIT 1", array($mac, LP_SOURCE));
-    if (!$dev || ((int)$dev['act_expires'] > 0 && (int)$dev['act_expires'] <= time())) return 'A ativacao deste aparelho venceu. Renove para usar a lista.';
+    if (!$dev) return 'A lista foi salva e vai para o aparelho assim que ele for ativado.';
+    if ((int)$dev['act_expires'] > 0 && (int)$dev['act_expires'] <= time()) return 'A ativacao deste aparelho venceu. Renove para usar a lista.';
     $dnsId = lp_dns_for((int)$dev['owner_id'], $l['dns_base']);
     db_query("UPDATE tbl_devices SET act_dns_id = ?, dns_id = ?, act_user = ?, act_pass = ?, act_output = ?, act_updated = ? WHERE id = ?",
         array($dnsId, $dnsId, $l['m3u_user'], $l['m3u_pass'], $l['output'], time(), (int)$dev['id']));
     db_query("UPDATE tbl_lp_lists SET is_active = IF(id = ?, 1, 0) WHERE mac = ?", array((int)$l['id'], $mac));
     return '';
+}
+
+// ============================================================
+//  UPLOAD DE ARQUIVO .m3u / .m3u8 / .txt
+//  O app trabalha com servidor + usuario + senha (Xtream). Do arquivo pegamos
+//  os links dos canais (http://srv/live/USUARIO/SENHA/1.ts ou get.php?username=)
+//  e extraimos esses dados. Arquivo sem links desse tipo e recusado.
+// ============================================================
+function lp_parse_m3u_file($field) {
+    if (empty($_FILES[$field]['name']) || !is_uploaded_file($_FILES[$field]['tmp_name'])) return array('ok' => false, 'error' => 'Escolha o arquivo da lista.');
+    if ((int)$_FILES[$field]['size'] > 15 * 1024 * 1024) return array('ok' => false, 'error' => 'Arquivo muito grande (maximo 15 MB).');
+    $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, array('m3u', 'm3u8', 'txt'), true)) return array('ok' => false, 'error' => 'Envie um arquivo .m3u, .m3u8 ou .txt.');
+    $fh = @fopen($_FILES[$field]['tmp_name'], 'r');
+    if (!$fh) return array('ok' => false, 'error' => 'Nao foi possivel ler o arquivo.');
+    $votes = array(); $best = array(); $lines = 0; $output = '';
+    while (($line = fgets($fh, 8192)) !== false && $lines < 20000) {
+        $lines++;
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#') continue;
+        if (!preg_match('#^https?://#i', $line)) continue;
+        $m = lp_parse_m3u($line);
+        if (!$m) continue;
+        $k = $m['base'] . "\n" . $m['user'] . "\n" . $m['pass'];
+        $votes[$k] = isset($votes[$k]) ? $votes[$k] + 1 : 1;
+        if (!isset($best[$k])) $best[$k] = $m;
+        if ($output === '' && $m['output'] !== '') $output = $m['output'];
+        if ($votes[$k] >= 25) break;     // ja sabemos qual e o servidor da lista
+    }
+    fclose($fh);
+    if (!$votes) return array('ok' => false, 'error' => 'Nao encontramos servidor, usuario e senha neste arquivo. O app precisa de uma lista no formato Xtream (links com usuario e senha).');
+    arsort($votes);
+    $m = $best[key($votes)];
+    if ($m['output'] === '') $m['output'] = $output;
+    return array('ok' => true, 'list' => $m);
+}
+
+// o app ja abriu neste MAC? (o app registra o aparelho ao abrir) - usado para salvar listas antes da ativacao
+function lp_mac_seen($mac) {
+    $mac = lf_norm_mac($mac);
+    return $mac !== '' && (bool)db_val("SELECT id FROM tbl_devices WHERE mac = ? OR device_key = ? LIMIT 1", array($mac, $mac));
 }

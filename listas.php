@@ -51,7 +51,7 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!lf_csrf_ok()) { ls_flash('Sessao expirada. Tente de novo.', 'err'); ls_go(); }
     if (lp_rl_count('ip:' . $ip, 600) >= 20) { ls_flash('Muitas tentativas. Aguarde alguns minutos.', 'err'); ls_go(); }
     if ($m === '') { ls_flash('MAC invalido. Ex.: A1:B2:C3:D4:E5:F6', 'err'); ls_go(); }
-    if (!lp_mac_known($m)) { lp_rl_hit('ip:' . $ip); usleep(400000); ls_flash('Aparelho nao encontrado. Faca a ativacao primeiro.', 'err'); ls_go(); }
+    if (!lp_mac_known($m)) { lp_rl_hit('ip:' . $ip); usleep(400000); ls_flash('Aparelho nao encontrado. Abra o app no aparelho uma vez (com internet) ou faca a ativacao.', 'err'); ls_go(); }
     if (lp_access_hash($m) !== '') {
         if (lp_rl_count('mac:' . $m, 900) >= 5) { ls_flash('Muitas senhas erradas para este aparelho. Aguarde 15 minutos.', 'err'); ls_go(); }
         if (!lp_access_check($m, $pw)) {
@@ -95,11 +95,17 @@ if ($sess && $_SERVER['REQUEST_METHOD'] === 'POST' && $action !== '') {
             if ($action === 'edit' && !$list) { ls_flash('Lista nao encontrada.', 'err'); ls_go(); }
             if ($action === 'add' && (int)db_val("SELECT COUNT(*) FROM tbl_lp_lists WHERE mac = ?", array($mac)) >= LP_MAX_LISTS) { ls_flash('Limite de ' . LP_MAX_LISTS . ' listas por aparelho.', 'err'); ls_go(); }
             $name = ls_str('name', 60);
-            $mode = ls_str('mode', 10) === 'manual' ? 'manual' : 'link';
-            $hasNew = $mode === 'manual' ? (ls_str('server', 255) !== '' || ls_str('user', 120) !== '') : ls_str('m3u', 800) !== '';
+            $mode = in_array(ls_str('mode', 10), array('manual', 'file'), true) ? ls_str('mode', 10) : 'link';
+            $hasNew = $mode === 'file' ? !empty($_FILES['m3u_file']['name']) : ($mode === 'manual' ? (ls_str('server', 255) !== '' || ls_str('user', 120) !== '') : ls_str('m3u', 800) !== '');
             $parsed = null;
             if ($hasNew || $action === 'add') {
-                $parsed = $mode === 'manual' ? lp_parse_manual(ls_str('server', 255), ls_str('user', 120), ls_str('pass', 190)) : lp_parse_m3u(ls_str('m3u', 800));
+                if ($mode === 'file') {
+                    $fr = lp_parse_m3u_file('m3u_file');
+                    if (!$fr['ok']) { ls_flash($fr['error'], 'err'); ls_go($action === 'edit' ? 'l' . $id : 'add'); }
+                    $parsed = $fr['list'];
+                } else {
+                    $parsed = $mode === 'manual' ? lp_parse_manual(ls_str('server', 255), ls_str('user', 120), ls_str('pass', 190)) : lp_parse_m3u(ls_str('m3u', 800));
+                }
                 if (!$parsed) { ls_flash($mode === 'manual' ? 'Confira o servidor, o usuario e a senha da lista.' : 'Link invalido. Use o link completo com usuario e senha (M3U, M3U8/HLS ou TS).', 'err'); ls_go($action === 'edit' ? 'l' . $id : 'add'); }
                 if ($cfg['check_m3u'] === '1' && lp_check_m3u($parsed) === false) { ls_flash('O servidor recusou este usuario/senha (ou a conta esta vencida).', 'err'); ls_go($action === 'edit' ? 'l' . $id : 'add'); }
             }
@@ -189,7 +195,7 @@ lp_layout_start('Minhas listas', 'listas');
 <?php if (!$mac) { ?>
     <section class="hero" style="padding-bottom:18px">
         <h1 style="font-size:clamp(26px,5vw,34px)">Minhas listas</h1>
-        <p>Entre com o MAC do aparelho para trocar, adicionar ou remover listas.</p>
+        <p>Envie, troque ou remova listas usando so o MAC do aparelho.</p>
     </section>
     <section class="card" style="max-width:440px;margin:0 auto">
         <?php if ($flash) { ?><div class="alert <?php echo $flash[1] === 'err' ? 'a-err' : 'a-ok'; ?>"><?php echo e($flash[0]); ?></div><?php } ?>
@@ -242,17 +248,17 @@ lp_layout_start('Minhas listas', 'listas');
         </div>
 
         <?php if (!$panel) { ?>
-        <form method="post" action="listas.php?action=add" id="add" class="drawer" hidden autocomplete="off" style="border-top:0;margin:0 0 14px;padding:0">
+        <form method="post" action="listas.php?action=add" id="add" class="drawer" hidden autocomplete="off" enctype="multipart/form-data" style="border-top:0;margin:0 0 14px;padding:0">
             <?php echo lf_csrf_field(); ?>
             <div class="list" style="background:var(--soft);border-color:transparent">
                 <h3>Nova lista</h3>
                 <input class="in" name="name" maxlength="60" placeholder="Nome (ex.: Lista da sala)" style="background:var(--card)">
-                <?php if ($allowManual) { ?>
                 <div class="seg" style="margin-top:10px;background:var(--card)">
                     <label><input type="radio" name="mode" value="link" checked> Link</label>
-                    <label><input type="radio" name="mode" value="manual"> Servidor e usuario</label>
+                    <label><input type="radio" name="mode" value="file"> Arquivo</label>
+                    <?php if ($allowManual) { ?><label><input type="radio" name="mode" value="manual"> Servidor</label><?php } ?>
                 </div>
-                <?php } ?>
+                <div data-mode="file" hidden style="margin-top:10px"><input class="in" type="file" name="m3u_file" accept=".m3u,.m3u8,.txt" style="background:var(--card)"><div class="hint">Arquivo .m3u / .m3u8 da lista (ate 15 MB).</div></div>
                 <div data-mode="link" style="margin-top:10px"><textarea class="in mono" name="m3u" placeholder="http://servidor.com:8080/get.php?username=USUARIO&password=SENHA&type=m3u_plus" style="background:var(--card)"></textarea></div>
                 <?php if ($allowManual) { ?>
                 <div data-mode="manual" hidden style="margin-top:10px">

@@ -41,7 +41,7 @@ if ($action === 'status') {
 if ($action === 'criar' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $str = function ($k, $max) { return isset($_POST[$k]) && is_string($_POST[$k]) ? substr(trim($_POST[$k]), 0, $max) : ''; };
     $old = array(
-        'mac' => $str('mac', 40), 'mode' => $str('mode', 10) === 'manual' ? 'manual' : 'link',
+        'mac' => $str('mac', 40), 'mode' => in_array($str('mode', 10), array('manual', 'file'), true) ? $str('mode', 10) : 'link',
         'm3u' => $str('m3u', 800), 'server' => $str('server', 255), 'user' => $str('user', 120), 'pass' => $str('pass', 190),
         'output' => lp_norm_output($str('output', 10)), 'email' => $str('email', 150),
         'plan' => isset($_POST['plan']) ? (int)$_POST['plan'] : 0,
@@ -57,7 +57,11 @@ if ($action === 'criar' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $mac = lf_norm_mac($old['mac']);
     if ($mac === '') lp_back('MAC invalido. Ele tem 12 letras/numeros e aparece na tela do app (ex.: A1:B2:C3:D4:E5:F6).', $old);
-    if ($old['mode'] === 'manual' && $cfg['allow_manual'] === '1') {
+    if ($old['mode'] === 'file') {
+        $fr = lp_parse_m3u_file('m3u_file');
+        if (!$fr['ok']) lp_back($fr['error'], $old);
+        $m = $fr['list'];
+    } else if ($old['mode'] === 'manual' && $cfg['allow_manual'] === '1') {
         $m = lp_parse_manual($old['server'], $old['user'], $old['pass']);
         if (!$m) lp_back('Confira o servidor (ex.: http://servidor.com:8080), o usuario e a senha.', $old);
     } else {
@@ -143,7 +147,7 @@ $mail = filter_var($cfg['support_email'], FILTER_VALIDATE_EMAIL) ? $cfg['support
 $payPix = $cfg['pay_pix'] === '1'; $payCard = $cfg['pay_card'] === '1';
 $mpReady = lp_mp_ready();
 $allowManual = $cfg['allow_manual'] === '1';
-$mode = $allowManual && $o('mode') === 'manual' ? 'manual' : 'link';
+$mode = $o('mode') === 'file' ? 'file' : ($allowManual && $o('mode') === 'manual' ? 'manual' : 'link');
 $outSel = $o('output', '');
 $days = function ($d) { $d = (int)$d; return $d <= 0 ? 'Sem vencimento' : ($d === 1 ? '1 dia' : $d . ' dias'); };
 ?>
@@ -247,7 +251,7 @@ $days = function ($d) { $d = (int)$d; return $d <= 0 ? 'Sem vencimento' : ($d ==
         <?php if (!$plans) { ?>
             <div class="alert a-info" style="margin:0"><i class="ri-information-line"></i><div>Nenhum plano disponivel no momento.</div></div>
         <?php } else { ?>
-        <form method="post" action="ativar.php?action=criar" id="f" autocomplete="off" novalidate>
+        <form method="post" action="ativar.php?action=criar" id="f" autocomplete="off" novalidate enctype="multipart/form-data">
             <?php echo lf_csrf_field(); ?>
             <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
 
@@ -255,12 +259,15 @@ $days = function ($d) { $d = (int)$d; return $d <= 0 ? 'Sem vencimento' : ($d ==
             <input class="in mono" id="mac" name="mac" maxlength="17" placeholder="A1:B2:C3:D4:E5:F6" required autocapitalize="characters" value="<?php echo e($o('mac', $prefillMac)); ?>">
 
             <div class="lbl">Sua lista</div>
-            <?php if ($allowManual) { ?>
             <div class="seg" style="margin-bottom:10px">
-                <label><input type="radio" name="mode" value="link" <?php if ($mode === 'link') echo 'checked'; ?>> Link da lista</label>
-                <label><input type="radio" name="mode" value="manual" <?php if ($mode === 'manual') echo 'checked'; ?>> Servidor e usuario</label>
+                <label><input type="radio" name="mode" value="link" <?php if ($mode === 'link') echo 'checked'; ?>> Link</label>
+                <label><input type="radio" name="mode" value="file" <?php if ($mode === 'file') echo 'checked'; ?>> Arquivo</label>
+                <?php if ($allowManual) { ?><label><input type="radio" name="mode" value="manual" <?php if ($mode === 'manual') echo 'checked'; ?>> Servidor</label><?php } ?>
             </div>
-            <?php } else { ?><input type="hidden" name="mode" value="link"><?php } ?>
+            <div id="mode-file" <?php if ($mode !== 'file') echo 'hidden'; ?>>
+                <input class="in" type="file" name="m3u_file" accept=".m3u,.m3u8,.txt">
+                <div class="hint">Envie o arquivo .m3u / .m3u8 da sua lista (ate 15 MB).</div>
+            </div>
             <div id="mode-link" <?php if ($mode !== 'link') echo 'hidden'; ?>>
                 <textarea class="in mono" id="m3u" name="m3u" placeholder="http://servidor.com:8080/get.php?username=USUARIO&password=SENHA&type=m3u_plus"><?php echo e($o('m3u')); ?></textarea>
                 <div class="hint" id="m3u-info">Aceita M3U, M3U8 (HLS), MPEG-TS (.ts) e Xtream Codes.</div>
@@ -333,7 +340,7 @@ $days = function ($d) { $d = (int)$d; return $d <= 0 ? 'Sem vencimento' : ($d ==
         <details><summary>Voces vendem canais ou listas?</summary><p>Nao. Somos apenas um reprodutor de midia. Voce usa a sua propria lista, de um fornecedor da sua escolha.</p></details>
         <details><summary>Preciso instalar outro app?</summary><p>Nao. Depois da ativacao, feche e abra o mesmo aplicativo: ele entra sozinho.</p></details>
         <details><summary>Onde encontro o MAC?</summary><p>Na tela de login do aplicativo, normalmente na parte de baixo.</p></details>
-        <details><summary>Quais formatos funcionam?</summary><p>Links M3U/M3U Plus, M3U8 (HLS), MPEG-TS (.ts) e Xtream Codes. Se a imagem travar, refaca a ativacao trocando o formato entre MPEG-TS e HLS.</p></details>
+        <details><summary>Quais formatos funcionam?</summary><p>Link ou arquivo M3U/M3U Plus, M3U8 (HLS), MPEG-TS (.ts) e Xtream Codes. Se a imagem travar, refaca a ativacao trocando o formato entre MPEG-TS e HLS.</p></details>
         <details><summary>Como troco ou adiciono listas?</summary><p>Em <b>Minhas listas</b>, entre com o MAC do aparelho. La voce adiciona, troca, ve ou remove listas e pode proteger tudo com senha.</p></details>
         <details><summary>Como renovo?</summary><p>Faca uma nova ativacao com o mesmo MAC. Os dias novos sao somados ao que ainda resta.</p></details>
     </section>
@@ -349,8 +356,9 @@ $days = function ($d) { $d = (int)$d; return $d <= 0 ? 'Sem vencimento' : ($d ==
                 var c = f.querySelector('input[name=plan]:checked'), free = c && parseFloat(c.getAttribute('data-price')) <= 0;
                 paid.hidden = !!free; go.querySelector('span').textContent = free ? 'Ativar teste gratis' : label;
                 var wp = document.getElementById('want-pass'); document.getElementById('pass-box').hidden = !wp.checked;
-                var m = f.querySelector('input[name=mode]:checked'), man = !!(m && m.value === 'manual');
-                document.getElementById('mode-link').hidden = man; var mm = document.getElementById('mode-manual'); if (mm) mm.hidden = !man;
+                var m = f.querySelector('input[name=mode]:checked'), mv = m ? m.value : 'link';
+                document.getElementById('mode-link').hidden = mv !== 'link'; document.getElementById('mode-file').hidden = mv !== 'file';
+                var mm = document.getElementById('mode-manual'); if (mm) mm.hidden = mv !== 'manual';
             }
             f.addEventListener('change', upd); upd();
             var m3u = document.getElementById('m3u'), info = document.getElementById('m3u-info'), def = info.innerHTML;

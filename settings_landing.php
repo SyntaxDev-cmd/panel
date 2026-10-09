@@ -33,6 +33,7 @@
                 'show_steps' => isset($_POST['show_steps']) ? '1' : '0',
                 'show_faq' => isset($_POST['show_faq']) ? '1' : '0',
                 'allow_manual' => isset($_POST['allow_manual']) ? '1' : '0',
+                'show_reseller' => isset($_POST['show_reseller']) ? '1' : '0',
                 'default_output' => lp_norm_output($p('default_output')) === 'm3u8' ? 'm3u8' : 'ts',
             );
             // logo da landing (PNG/JPG/WEBP/SVG nao: so imagens de verdade; ate 2 MB)
@@ -130,6 +131,8 @@
                     <a class="pb-clipboard__link btn_clip" href="javascript:void(0);" data-target="clip_lp" title="Copiar"><i class="ri-file-copy-line"></i></a></div>
                 <div class="pb-clipboard mb-2"><span class="pb-clipboard__url"><b style="color: var(--ns-primary);">Minhas listas (area do cliente): </b><span id="clip_ls"><?php echo e($base . 'listas.php'); ?></span></span>
                     <a class="pb-clipboard__link btn_clip" href="javascript:void(0);" data-target="clip_ls" title="Copiar"><i class="ri-file-copy-line"></i></a></div>
+                <div class="pb-clipboard mb-2"><span class="pb-clipboard__url"><b style="color: var(--ns-primary);">Area do revendedor: </b><span id="clip_rv"><?php echo e($base . 'revenda.php'); ?></span></span>
+                    <a class="pb-clipboard__link btn_clip" href="javascript:void(0);" data-target="clip_rv" title="Copiar"><i class="ri-file-copy-line"></i></a></div>
                 <div class="pb-clipboard mb-2"><span class="pb-clipboard__url"><b style="color: var(--ns-primary);">Webhook do Mercado Pago: </b><span id="clip_wh"><?php echo e($webhook_url); ?></span></span>
                     <a class="pb-clipboard__link btn_clip" href="javascript:void(0);" data-target="clip_wh" title="Copiar"><i class="ri-file-copy-line"></i></a></div>
                 <a href="ativar.php" target="_blank" class="btn btn-outline-primary mt-2"><i class="ri-external-link-line"></i> Abrir landing page</a>
@@ -169,6 +172,7 @@
                             <div class="col-12 d-flex flex-wrap" style="gap:18px">
                                 <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="show_steps" id="ss" <?php if ($cfg['show_steps'] === '1') echo 'checked'; ?>><label class="form-check-label" for="ss">Mostrar "como funciona"</label></div>
                                 <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="show_faq" id="sf" <?php if ($cfg['show_faq'] === '1') echo 'checked'; ?>><label class="form-check-label" for="sf">Mostrar perguntas frequentes</label></div>
+                                <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="show_reseller" id="sr" <?php if ($cfg['show_reseller'] === '1') echo 'checked'; ?>><label class="form-check-label" for="sr">Mostrar aba "Revenda" (login com o acesso do painel)</label></div>
                             </div>
                         </div>
                     </div>

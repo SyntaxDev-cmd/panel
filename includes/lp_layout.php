@@ -123,14 +123,14 @@ footer a{color:var(--mut)}
 .sw{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;cursor:pointer;color:var(--mut);margin-top:14px}
 .sw input{accent-color:var(--c);width:16px;height:16px;margin-top:2px;flex:none}
 .sw b{color:var(--txt);font-weight:600}
-@media(max-width:420px){.brand span{display:none}}
+@media(max-width:520px){.brand span{display:none}.tabs a{padding:7px 9px;font-size:12.5px}}
 </style>
 </head>
 <body<?php if ($wa || $tg) echo ' class="has-float"'; ?>>
 <div class="w">
     <header class="nav">
         <a class="brand" href="ativar.php"><?php if ($brand['logo']) { ?><img src="<?php echo e($brand['logo']); ?>" alt="<?php echo e($brand['name']); ?>"><?php } ?><span><?php echo e($brand['name']); ?></span></a>
-        <?php if ($cfg['enabled'] === '1') { ?><nav class="tabs"><a href="ativar.php" class="<?php echo $tab === 'ativar' ? 'on' : ''; ?>">Ativar</a><a href="listas.php" class="<?php echo $tab === 'listas' ? 'on' : ''; ?>">Minhas listas</a></nav><?php } ?>
+        <?php if ($cfg['enabled'] === '1') { ?><nav class="tabs"><a href="ativar.php" class="<?php echo $tab === 'ativar' ? 'on' : ''; ?>">Ativar</a><a href="listas.php" class="<?php echo $tab === 'listas' ? 'on' : ''; ?>">Minhas listas</a><?php if ($cfg['show_reseller'] === '1') { ?><a href="revenda.php" class="<?php echo $tab === 'revenda' ? 'on' : ''; ?>">Revenda</a><?php } ?></nav><?php } ?>
     </header>
 <?php
 }
