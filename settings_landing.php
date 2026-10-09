@@ -128,6 +128,8 @@
                 <h5 class="mb-3">Enderecos</h5>
                 <div class="pb-clipboard mb-2"><span class="pb-clipboard__url"><b style="color: var(--ns-primary);">Landing page (envie para os clientes): </b><span id="clip_lp"><?php echo e($landing_url); ?></span></span>
                     <a class="pb-clipboard__link btn_clip" href="javascript:void(0);" data-target="clip_lp" title="Copiar"><i class="ri-file-copy-line"></i></a></div>
+                <div class="pb-clipboard mb-2"><span class="pb-clipboard__url"><b style="color: var(--ns-primary);">Minhas listas (area do cliente): </b><span id="clip_ls"><?php echo e($base . 'listas.php'); ?></span></span>
+                    <a class="pb-clipboard__link btn_clip" href="javascript:void(0);" data-target="clip_ls" title="Copiar"><i class="ri-file-copy-line"></i></a></div>
                 <div class="pb-clipboard mb-2"><span class="pb-clipboard__url"><b style="color: var(--ns-primary);">Webhook do Mercado Pago: </b><span id="clip_wh"><?php echo e($webhook_url); ?></span></span>
                     <a class="pb-clipboard__link btn_clip" href="javascript:void(0);" data-target="clip_wh" title="Copiar"><i class="ri-file-copy-line"></i></a></div>
                 <a href="ativar.php" target="_blank" class="btn btn-outline-primary mt-2"><i class="ri-external-link-line"></i> Abrir landing page</a>

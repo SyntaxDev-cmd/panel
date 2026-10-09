@@ -391,6 +391,12 @@ function lp_activate_device($order) {
     // o mesmo MAC ativado em outro registro deixaria duas ativacoes: vale a do site (mais nova)
     db_query("UPDATE tbl_devices SET act_user = '', act_pass = '', act_dns_id = 0 WHERE mac = ? AND id <> ? AND act_user <> '' AND act_source = ?", array($mac, $devId, LP_SOURCE));
     db_query("UPDATE tbl_lp_orders SET device_id = ?, expires_at = ? WHERE id = ?", array($devId, $expires, (int)$order['id']));
+
+    // "Minhas listas": a lista comprada vira a lista em uso; senha so e gravada se o MAC ainda nao tiver uma
+    lp_list_upsert_active($mac, $order['dns_base'], $order['m3u_user'], $order['m3u_pass'], isset($order['output']) ? $order['output'] : '');
+    if (!empty($order['manage_pass']) && lp_access_hash($mac) === '') {
+        db_query("INSERT INTO tbl_lp_access (mac, pass_hash, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE pass_hash = VALUES(pass_hash), updated_at = VALUES(updated_at)", array($mac, $order['manage_pass'], time()));
+    }
     return true;
 }
 
@@ -423,4 +429,109 @@ function lp_mac_status($mac) {
         return array('active' => false, 'expires' => $last ? (int)$last['act_expires'] : 0);
     }
     return array('active' => (int)$act['status'] === 1, 'expires' => (int)$act['act_expires'], 'blocked' => (int)$act['status'] === 0);
+}
+
+// ============================================================
+//  MINHAS LISTAS (landing): varias listas por MAC, uma "em uso" no aparelho
+//  - senha opcional por MAC (protege o acesso e as listas privadas)
+//  - lista privada: o link nao aparece; para ver e preciso digitar a senha
+// ============================================================
+define('LP_MAX_LISTS', 10);
+
+function lp_m3u_url($l) {
+    $out = $l['output'] === 'm3u8' ? 'm3u8' : 'ts';
+    return rtrim($l['dns_base'], '/') . '/get.php?username=' . rawurlencode($l['m3u_user']) . '&password=' . rawurlencode($l['m3u_pass']) . '&type=m3u_plus&output=' . $out;
+}
+function lp_access_hash($mac) {
+    $h = db_val("SELECT pass_hash FROM tbl_lp_access WHERE mac = ?", array(lf_norm_mac($mac)));
+    return $h ? (string)$h : '';
+}
+function lp_access_set($mac, $plain) {
+    $mac = lf_norm_mac($mac);
+    if ($plain === '') { db_query("DELETE FROM tbl_lp_access WHERE mac = ?", array($mac)); return; }
+    db_query("INSERT INTO tbl_lp_access (mac, pass_hash, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE pass_hash = VALUES(pass_hash), updated_at = VALUES(updated_at)",
+        array($mac, password_hash($plain, PASSWORD_DEFAULT), time()));
+}
+function lp_access_check($mac, $plain) {
+    $h = lp_access_hash($mac);
+    return $h !== '' && is_string($plain) && $plain !== '' && password_verify($plain, $h);
+}
+
+// tentativas (anti forca bruta): conta eventos de uma chave numa janela de tempo
+function lp_rl_hit($k) { db_query("INSERT INTO tbl_lp_attempts (k, at) VALUES (?, ?)", array(substr($k, 0, 80), time())); }
+function lp_rl_count($k, $window) { return (int)db_val("SELECT COUNT(*) FROM tbl_lp_attempts WHERE k = ? AND at >= ?", array(substr($k, 0, 80), time() - (int)$window)); }
+function lp_rl_clear($k) { db_query("DELETE FROM tbl_lp_attempts WHERE k = ?", array(substr($k, 0, 80))); }
+function lp_rl_gc() { if (mt_rand(1, 50) === 1) db_query("DELETE FROM tbl_lp_attempts WHERE at < ?", array(time() - 86400)); }
+
+// situacao do aparelho para a area do cliente
+function lp_mac_state($mac) {
+    $mac = lf_norm_mac($mac);
+    $now = time();
+    $dev = db_row("SELECT * FROM tbl_devices WHERE mac = ? AND act_user <> '' ORDER BY act_updated DESC LIMIT 1", array($mac));
+    $st = array('mac' => $mac, 'device' => $dev, 'source' => 'none', 'active' => false, 'expires' => 0, 'blocked' => false);
+    if ($dev) {
+        $st['source'] = $dev['act_source'] === LP_SOURCE ? 'site' : 'panel';
+        $st['expires'] = (int)$dev['act_expires'];
+        $st['blocked'] = (int)$dev['status'] === 0;
+        $st['active'] = !$st['blocked'] && ($st['expires'] === 0 || $st['expires'] > $now);
+    } else {
+        $any = db_row("SELECT status, act_expires FROM tbl_devices WHERE mac = ? AND act_source = ? ORDER BY act_expires DESC LIMIT 1", array($mac, LP_SOURCE));
+        if ($any) { $st['source'] = 'site'; $st['expires'] = (int)$any['act_expires']; $st['blocked'] = (int)$any['status'] === 0; }
+    }
+    if (db_val("SELECT id FROM tbl_devices WHERE mac = ? AND status = 0 LIMIT 1", array($mac))) $st['blocked'] = true;
+    return $st;
+}
+// o MAC existe para a area do cliente? (ja foi ativado pelo site ou ja tem listas salvas)
+function lp_mac_known($mac) {
+    $mac = lf_norm_mac($mac);
+    if ($mac === '') return false;
+    if (db_val("SELECT id FROM tbl_lp_lists WHERE mac = ? LIMIT 1", array($mac))) return true;
+    if (db_val("SELECT id FROM tbl_devices WHERE mac = ? AND act_user <> '' LIMIT 1", array($mac))) return true;
+    return (bool)db_val("SELECT id FROM tbl_lp_orders WHERE mac = ? AND status = 'approved' LIMIT 1", array($mac));
+}
+
+function lp_lists($mac) {
+    return db_all("SELECT * FROM tbl_lp_lists WHERE mac = ? ORDER BY is_active DESC, id ASC", array(lf_norm_mac($mac)));
+}
+// ativacao feita pelo site antes desta funcao existir: cria a lista "em uso" a partir dela
+function lp_lists_seed($mac) {
+    $mac = lf_norm_mac($mac);
+    if (db_val("SELECT id FROM tbl_lp_lists WHERE mac = ? LIMIT 1", array($mac))) return;
+    $dev = db_row("SELECT v.*, d.dns_base FROM tbl_devices v INNER JOIN tbl_dns d ON d.id = v.act_dns_id WHERE v.mac = ? AND v.act_user <> '' AND v.act_source = ? ORDER BY v.act_updated DESC LIMIT 1", array($mac, LP_SOURCE));
+    if ($dev) lp_list_upsert_active($mac, html_entity_decode($dev['dns_base'], ENT_QUOTES, 'UTF-8'), $dev['act_user'], $dev['act_pass'], $dev['act_output']);
+}
+function lp_list_name_default($base) { $h = parse_url($base, PHP_URL_HOST); return 'Lista ' . ($h ? $h : ''); }
+
+// grava (ou reaproveita) a lista e marca como "em uso"
+function lp_list_upsert_active($mac, $base, $user, $pass, $output) {
+    $mac = lf_norm_mac($mac); $base = rtrim((string)$base, '/'); $now = time();
+    $row = db_row("SELECT id FROM tbl_lp_lists WHERE mac = ? AND dns_base = ? AND m3u_user = ? AND m3u_pass = ? LIMIT 1", array($mac, $base, $user, $pass));
+    if ($row) {
+        $id = (int)$row['id'];
+        db_query("UPDATE tbl_lp_lists SET output = ?, updated_at = ? WHERE id = ?", array(lp_norm_output($output), $now, $id));
+    } else {
+        $n = (int)db_val("SELECT COUNT(*) FROM tbl_lp_lists WHERE mac = ?", array($mac));
+        db_query("INSERT INTO tbl_lp_lists (mac, name, dns_base, m3u_user, m3u_pass, output, is_private, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)",
+            array($mac, $n === 0 ? 'Lista principal' : substr(lp_list_name_default($base), 0, 60), $base, $user, $pass, lp_norm_output($output), $now, $now));
+        $id = db_last_id();
+    }
+    db_query("UPDATE tbl_lp_lists SET is_active = IF(id = ?, 1, 0) WHERE mac = ?", array($id, $mac));
+    return $id;
+}
+
+// coloca a lista no aparelho (so ativacoes feitas pelo site e dentro do prazo)
+function lp_list_apply($mac, $listId) {
+    $mac = lf_norm_mac($mac);
+    $l = db_row("SELECT * FROM tbl_lp_lists WHERE id = ? AND mac = ?", array((int)$listId, $mac));
+    if (!$l) return 'Lista nao encontrada.';
+    $st = lp_mac_state($mac);
+    if ($st['blocked']) return 'Este aparelho esta bloqueado. Fale com o suporte.';
+    if ($st['source'] === 'panel') return 'Este aparelho e gerenciado pelo seu revendedor.';
+    $dev = db_row("SELECT * FROM tbl_devices WHERE mac = ? AND act_source = ? ORDER BY act_updated DESC LIMIT 1", array($mac, LP_SOURCE));
+    if (!$dev || ((int)$dev['act_expires'] > 0 && (int)$dev['act_expires'] <= time())) return 'A ativacao deste aparelho venceu. Renove para usar a lista.';
+    $dnsId = lp_dns_for((int)$dev['owner_id'], $l['dns_base']);
+    db_query("UPDATE tbl_devices SET act_dns_id = ?, dns_id = ?, act_user = ?, act_pass = ?, act_output = ?, act_updated = ? WHERE id = ?",
+        array($dnsId, $dnsId, $l['m3u_user'], $l['m3u_pass'], $l['output'], time(), (int)$dev['id']));
+    db_query("UPDATE tbl_lp_lists SET is_active = IF(id = ?, 1, 0) WHERE mac = ?", array((int)$l['id'], $mac));
+    return '';
 }

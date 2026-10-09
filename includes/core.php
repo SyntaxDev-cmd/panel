@@ -16,7 +16,7 @@ define('ROLE_REVENDA', 0);   // revenda comum: gerencia apenas as proprias DNS
 
 define('LF_ONLINE_SECONDS', 300);   // "conectado agora" = sinal nos ultimos 5 minutos
 define('LF_ACTIVE_DAYS', 30);       // "ativo" = usado nos ultimos 30 dias (conta no limite)
-define('LF_SCHEMA_VERSION', 6);
+define('LF_SCHEMA_VERSION', 7);
 
 // ---------- saida segura em HTML ----------
 function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -212,6 +212,37 @@ function lf_migrate() {
         if (lf_policy_is_placeholder($pol['app_terms'])) db_query("UPDATE tbl_settings SET app_terms = ? WHERE id = 1", array(lf_policy_template('terms')));
     }
 
+    // --- v7: "Minhas listas" na landing (varias listas por MAC, senha opcional, listas privadas) ---
+    db_query("CREATE TABLE IF NOT EXISTS `tbl_lp_lists` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `mac` VARCHAR(17) NOT NULL,
+        `name` VARCHAR(60) NOT NULL DEFAULT '',
+        `dns_base` VARCHAR(255) NOT NULL DEFAULT '',
+        `m3u_user` VARCHAR(120) NOT NULL DEFAULT '',
+        `m3u_pass` VARCHAR(190) NOT NULL DEFAULT '',
+        `output` VARCHAR(10) NOT NULL DEFAULT '',
+        `is_private` TINYINT(1) NOT NULL DEFAULT 0,
+        `is_active` TINYINT(1) NOT NULL DEFAULT 0,
+        `created_at` INT NOT NULL DEFAULT 0,
+        `updated_at` INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (`id`),
+        KEY `idx_mac` (`mac`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    db_query("CREATE TABLE IF NOT EXISTS `tbl_lp_access` (
+        `mac` VARCHAR(17) NOT NULL,
+        `pass_hash` VARCHAR(255) NOT NULL DEFAULT '',
+        `updated_at` INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (`mac`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    db_query("CREATE TABLE IF NOT EXISTS `tbl_lp_attempts` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `k` VARCHAR(80) NOT NULL,
+        `at` INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (`id`),
+        KEY `idx_k` (`k`, `at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    lf_add_col('tbl_lp_orders', 'manage_pass', "VARCHAR(255) NOT NULL DEFAULT ''");
+
     // --- dados antigos: liga cada DNS ao dono e gera o codigo que faltar ---
     db_query("UPDATE tbl_dns d INNER JOIN tbl_admin a ON a.username = d.cliente SET d.owner_id = a.id WHERE d.owner_id = 0");
     $root = (int)db_val("SELECT id FROM tbl_admin WHERE admin_type = ? ORDER BY id ASC LIMIT 1", array(ROLE_ADMIN));
@@ -222,7 +253,8 @@ function lf_migrate() {
 
     if (lf_col_exists('tbl_dns', 'partner_code') && lf_col_exists('tbl_admin', 'parent_id') && lf_col_exists('tbl_settings', 'login_mode') && lf_col_exists('tbl_devices', 'act_user') && lf_col_exists('tbl_dns', 'dns_backup')
         && lf_col_exists('tbl_devices', 'act_expires') && lf_col_exists('tbl_dns', 'origin') && lf_table_exists('tbl_lp_orders') && lf_table_exists('tbl_lp_plans') && lf_table_exists('tbl_lp_config')
-        && lf_col_exists('tbl_devices', 'act_output') && lf_col_exists('tbl_lp_orders', 'output') && lf_table_exists('tbl_policy_deletion')) {
+        && lf_col_exists('tbl_devices', 'act_output') && lf_col_exists('tbl_lp_orders', 'output') && lf_table_exists('tbl_policy_deletion')
+        && lf_table_exists('tbl_lp_lists') && lf_table_exists('tbl_lp_access') && lf_table_exists('tbl_lp_attempts') && lf_col_exists('tbl_lp_orders', 'manage_pass')) {
         @file_put_contents($marker, date('c'));
     }
 }

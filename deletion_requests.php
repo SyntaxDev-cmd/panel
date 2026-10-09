@@ -21,6 +21,10 @@ function dr_apply($req) {
         if ($full) db_query("DELETE FROM tbl_devices WHERE id IN (" . lf_in($ids) . ")");
         else db_query("UPDATE tbl_devices SET ip = '', user_agent = '', model = '', username = '' WHERE id IN (" . lf_in($ids) . ")");
     }
+    if ($mac !== '' && $full) {
+        $n += (int)db_exec("DELETE FROM tbl_lp_lists WHERE mac = ?", array($mac));
+        db_query("DELETE FROM tbl_lp_access WHERE mac = ?", array($mac));
+    }
     // pedidos do site: mantem so o registro financeiro (obrigacao fiscal), sem dados pessoais
     $n += (int)db_exec("UPDATE tbl_lp_orders SET email = '', ip = '', m3u_user = '', m3u_pass = '', pix_qr = NULL, pix_qr_b64 = NULL" . ($full ? ", dns_base = ''" : "") . " WHERE email = ? OR (mac <> '' AND mac = ?)", array($v, $mac));
     return $n;

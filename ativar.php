@@ -9,6 +9,7 @@
 include("includes/db_helper.php");
 require_once("includes/landing.php");
 require_once("includes/policies.php");
+require_once("includes/lp_layout.php");
 
 header('X-Frame-Options: SAMEORIGIN');
 header('X-Content-Type-Options: nosniff');
@@ -24,18 +25,6 @@ function lp_json($a) { header('Content-Type: application/json; charset=utf-8'); 
 function lp_back($msg, $old = array()) { $_SESSION['lp_err'] = $msg; $_SESSION['lp_old'] = $old; header('Location: ativar.php#ativar'); exit; }
 function lp_order($token) { return $token === '' ? null : db_row("SELECT * FROM tbl_lp_orders WHERE token = ? LIMIT 1", array($token)); }
 function lp_host($base) { $h = parse_url($base, PHP_URL_HOST); return $h ? $h : $base; }
-
-// ---------- consulta publica do MAC (nunca mostra usuario/senha) ----------
-if ($action === 'consulta') {
-    $mac = lf_norm_mac(isset($_GET['mac']) ? $_GET['mac'] : '');
-    if ($mac === '') lp_json(array('ok' => false, 'msg' => 'MAC invalido. Ex.: A1:B2:C3:D4:E5:F6'));
-    usleep(300000);
-    $s = lp_mac_status($mac);
-    $exp = $s['expires'] > 0 ? date('d/m/Y H:i', $s['expires']) : '';
-    if (!empty($s['blocked'])) lp_json(array('ok' => true, 'active' => false, 'msg' => 'Este aparelho esta bloqueado. Fale com o suporte.'));
-    if ($s['active']) lp_json(array('ok' => true, 'active' => true, 'msg' => $exp ? 'Ativo ate ' . $exp . '.' : 'Ativo, sem vencimento.'));
-    lp_json(array('ok' => true, 'active' => false, 'msg' => $exp ? 'Ativacao vencida em ' . $exp . '. Renove abaixo.' : 'Este aparelho ainda nao esta ativado.'));
-}
 
 // ---------- situacao do pedido (a pagina consulta a cada poucos segundos) ----------
 if ($action === 'status') {
@@ -57,7 +46,10 @@ if ($action === 'criar' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'output' => lp_norm_output($str('output', 10)), 'email' => $str('email', 150),
         'plan' => isset($_POST['plan']) ? (int)$_POST['plan'] : 0,
         'method' => $str('method', 10) === 'card' ? 'card' : 'pix',
+        'mpass' => '',
     );
+    $mpass = isset($_POST['mpass']) && is_string($_POST['mpass']) ? (string)$_POST['mpass'] : '';
+    if ($mpass !== '' && (strlen($mpass) < 4 || strlen($mpass) > 64)) { $old['mpass'] = '1'; lp_back('A senha das listas precisa ter de 4 a 64 caracteres.', $old); }
     if (!$enabled) lp_back('A ativacao pelo site esta desligada no momento.', $old);
     if (!lf_csrf_ok()) lp_back('Sua sessao expirou. Confira os dados e tente de novo.', $old);
     if (!empty($_POST['website'])) lp_back('Nao foi possivel continuar.', $old);    // armadilha para robos
@@ -98,9 +90,9 @@ if ($action === 'criar' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $tk = bin2hex(random_bytes(16));
-    db_query("INSERT INTO tbl_lp_orders (token, mac, dns_base, m3u_user, m3u_pass, output, email, plan_id, plan_name, days, amount, status, method, ip, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
-        array($tk, $mac, $m['base'], $m['user'], $m['pass'], $output, $old['email'], (int)$plan['id'], $plan['name'], (int)$plan['days'], number_format((float)$plan['price'], 2, '.', ''), $free ? 'free' : $old['method'], $ip, time()));
+    db_query("INSERT INTO tbl_lp_orders (token, mac, dns_base, m3u_user, m3u_pass, output, email, plan_id, plan_name, days, amount, status, method, ip, created_at, manage_pass)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+        array($tk, $mac, $m['base'], $m['user'], $m['pass'], $output, $old['email'], (int)$plan['id'], $plan['name'], (int)$plan['days'], number_format((float)$plan['price'], 2, '.', ''), $free ? 'free' : $old['method'], $ip, time(), $mpass !== '' ? password_hash($mpass, PASSWORD_DEFAULT) : ''));
     $order = lp_order($tk);
     if (!$order) lp_back('Nao foi possivel registrar o pedido. Tente de novo.', $old);
 
@@ -155,99 +147,7 @@ $mode = $allowManual && $o('mode') === 'manual' ? 'manual' : 'link';
 $outSel = $o('output', '');
 $days = function ($d) { $d = (int)$d; return $d <= 0 ? 'Sem vencimento' : ($d === 1 ? '1 dia' : $d . ' dias'); };
 ?>
-<!DOCTYPE html>
-<html lang="pt-BR" data-theme="<?php echo e($brand['theme']); ?>">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title><?php echo e($cfg['title']); ?> | <?php echo e($brand['name']); ?></title>
-<meta name="description" content="<?php echo e($cfg['subtitle']); ?>">
-<meta name="theme-color" content="<?php echo e($brand['color']); ?>">
-<?php if ($brand['logo']) { ?><link rel="icon" href="<?php echo e($brand['logo']); ?>"><link rel="apple-touch-icon" href="<?php echo e($brand['logo']); ?>"><?php } ?>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/vendors/remixicon/remixicon.min.css">
-<style>
-:root{--c:<?php echo $brand['color']; ?>;--bg:#f7f7f9;--card:#ffffff;--soft:#f1f1f5;--line:#e6e6ec;--txt:#16161d;--mut:#6c6c7a;--ok:#16a34a;--err:#dc2626;--sh:0 1px 2px rgba(16,16,24,.04),0 12px 40px rgba(16,16,24,.06)}
-html[data-theme=dark]{--bg:#0a0a0f;--card:#121219;--soft:#191922;--line:#25252f;--txt:#ededf3;--mut:#9898a8;--sh:0 1px 2px rgba(0,0,0,.3),0 20px 50px rgba(0,0,0,.35)}
-@media (prefers-color-scheme:dark){html[data-theme=auto]{--bg:#0a0a0f;--card:#121219;--soft:#191922;--line:#25252f;--txt:#ededf3;--mut:#9898a8;--sh:0 1px 2px rgba(0,0,0,.3),0 20px 50px rgba(0,0,0,.35)}}
-*{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;font:15px/1.55 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt);-webkit-font-smoothing:antialiased}
-body:before{content:"";position:fixed;inset:0 0 auto 0;height:420px;z-index:-1;background:radial-gradient(600px 300px at 50% -80px,color-mix(in srgb,var(--c) 22%,transparent),transparent 75%)}
-a{color:inherit}
-.w{max-width:560px;margin:0 auto;padding:0 16px}
-.nav{display:flex;align-items:center;justify-content:space-between;padding:20px 0}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;text-decoration:none;min-width:0}
-.brand img{height:36px;width:auto;max-width:140px;object-fit:contain;border-radius:8px}
-.brand span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.link{font-size:14px;color:var(--mut);text-decoration:none;display:inline-flex;gap:6px;align-items:center}.link:hover{color:var(--txt)}
-.hero{text-align:center;padding:26px 0 22px}
-.pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);padding:5px 11px;border-radius:99px}
-.hero h1{font-size:clamp(28px,6vw,40px);line-height:1.12;letter-spacing:-.025em;margin:14px 0 10px}
-.hero p{color:var(--mut);margin:0 auto;max-width:460px;font-size:16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:var(--sh)}
-.lbl{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-weight:600;font-size:13.5px;margin:18px 0 7px}
-.lbl small{font-weight:400;color:var(--mut);text-align:right}
-form > .lbl:first-of-type{margin-top:0}
-.in{width:100%;background:var(--soft);border:1px solid transparent;color:var(--txt);border-radius:12px;padding:12px 14px;font:15px Inter,sans-serif;outline:none;transition:.15s}
-.in:focus{border-color:var(--c);background:var(--card);box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 15%,transparent)}
-textarea.in{min-height:78px;resize:vertical;word-break:break-all}
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.03em}
-.hint{font-size:12.5px;color:var(--mut);margin-top:6px}
-.seg{display:flex;background:var(--soft);border-radius:12px;padding:4px;gap:4px}
-.seg label{position:relative;flex:1;text-align:center;padding:8px 4px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:600;color:var(--mut);transition:.15s}
-.seg input{position:absolute;opacity:0;pointer-events:none}
-.seg label:has(input:checked){background:var(--card);color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-.plans{display:grid;gap:8px}
-.plan{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:13px 14px;cursor:pointer;transition:.15s}
-.plan input{accent-color:var(--c);width:17px;height:17px;margin:0;flex:none}
-.plan b{display:block;font-size:14.5px}.plan small{color:var(--mut)}
-.plan .pr{margin-left:auto;font-weight:700;font-size:16px;white-space:nowrap}
-.plan:has(input:checked){border-color:var(--c);background:color-mix(in srgb,var(--c) 7%,var(--card))}
-.chk{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--mut);margin-top:18px;cursor:pointer}
-.chk input{accent-color:var(--c);margin-top:3px;flex:none}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:12px;padding:14px 18px;font:600 15px Inter,sans-serif;cursor:pointer;text-decoration:none;transition:.15s;background:var(--soft);color:var(--txt)}
-.btn-p{background:var(--c);color:#fff;width:100%}.btn-p:hover{filter:brightness(1.08)}
-.btn:disabled{opacity:.6;cursor:wait}
-.alert{border-radius:12px;padding:11px 13px;margin-bottom:16px;font-size:13.5px;display:flex;gap:9px;align-items:flex-start}
-.a-err{background:color-mix(in srgb,var(--err) 10%,transparent);color:var(--err)}
-.a-ok{background:color-mix(in srgb,var(--ok) 12%,transparent);color:var(--ok)}
-.a-info{background:var(--soft);color:var(--mut)}
-.secure{text-align:center;font-size:12.5px;color:var(--mut);margin:12px 0 0}
-.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:26px 0 0}
-.step{text-align:center;font-size:12.5px;color:var(--mut)}
-.step i{display:flex;align-items:center;justify-content:center;width:38px;height:38px;margin:0 auto 6px;border-radius:12px;background:color-mix(in srgb,var(--c) 12%,transparent);color:var(--c);font-size:18px}
-.step b{display:block;color:var(--txt);font-size:13px}
-.sec{margin-top:16px}
-.row{display:flex;gap:8px}.row .in{flex:1;min-width:0}
-.faq details{border-top:1px solid var(--line);padding:13px 0}.faq details:first-of-type{border-top:0;padding-top:4px}
-.faq summary{cursor:pointer;font-weight:600;font-size:14px;list-style:none;display:flex;justify-content:space-between;gap:10px}.faq summary::-webkit-details-marker{display:none}
-.faq summary:after{content:"+";color:var(--mut)}.faq details[open] summary:after{content:"\2013"}
-.faq p{color:var(--mut);margin:7px 0 0;font-size:13.5px}
-h2{font-size:17px;margin:0 0 4px}
-.qr{background:#fff;border-radius:16px;padding:10px;width:220px;max-width:100%;margin:14px auto;display:block;border:1px solid var(--line)}
-.amount{font-size:28px;font-weight:800;letter-spacing:-.02em}
-.status{display:flex;align-items:center;gap:9px;justify-content:center;margin-top:14px;color:var(--mut);font-size:13.5px}
-.spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--c);border-radius:50%;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
-.big-ok{width:62px;height:62px;border-radius:50%;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok);font-size:32px}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:7px 16px;font-size:13.5px;margin:18px 0 6px;text-align:left;border-top:1px solid var(--line);padding-top:16px}.kv span{color:var(--mut)}.kv b{word-break:break-all}
-.disc{font-size:12px;color:var(--mut);text-align:center;margin:28px auto 0;max-width:520px;line-height:1.6}
-footer{color:var(--mut);text-align:center;font-size:12.5px;padding:16px 0 40px}
-footer a{color:var(--mut)}
-.float{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:10px;z-index:5}
-@media(max-width:640px){.float{flex-direction:row;right:12px;bottom:12px}.float a{width:44px!important;height:44px!important;font-size:21px!important}body.has-float footer{padding-bottom:80px}}
-.float a{width:50px;height:50px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 8px 24px rgba(0,0,0,.25);text-decoration:none}
-.hp{position:absolute;left:-9999px;width:1px;height:1px}
-[hidden]{display:none!important}
-</style>
-</head>
-<body<?php if ($wa || $tg) echo ' class="has-float"'; ?>>
-<div class="w">
-    <header class="nav">
-        <a class="brand" href="ativar.php"><?php if ($brand['logo']) { ?><img src="<?php echo e($brand['logo']); ?>" alt="<?php echo e($brand['name']); ?>"><?php } ?><span><?php echo e($brand['name']); ?></span></a>
-        <?php if ($order) { ?><a class="link" href="ativar.php"><i class="ri-arrow-left-line"></i> Inicio</a><?php } else if ($enabled) { ?><a class="link" href="#consulta"><i class="ri-search-line"></i> Consultar</a><?php } ?>
-    </header>
+<?php lp_layout_start($order ? 'Pedido #' . (int)$order['id'] : $cfg['title'], 'ativar'); ?>
 
 <?php if ($order) {
     // ===================== TELA DO PEDIDO =====================
@@ -259,6 +159,7 @@ footer a{color:var(--mut)}
                 <div class="big-ok"><i class="ri-check-line"></i></div>
                 <h1 style="font-size:24px;margin:0 0 6px">Aparelho ativado</h1>
                 <p style="color:var(--mut);margin:0">Feche e abra o aplicativo no aparelho. Ele entra sozinho.</p>
+                <a class="btn btn-o btn-s" style="margin-top:14px" href="listas.php?pedido=<?php echo e($order['token']); ?>"><i class="ri-play-list-2-line"></i> Gerenciar minhas listas</a>
                 <p id="exp-txt" style="margin:12px 0 0"><?php if ((int)$order['expires_at'] > 0) { ?>Valido ate <b><?php echo date('d/m/Y H:i', (int)$order['expires_at']); ?></b><?php } ?></p>
             </div>
 
@@ -401,6 +302,12 @@ footer a{color:var(--mut)}
                 <?php } else { ?><input type="hidden" name="method" value="<?php echo $payCard ? 'card' : 'pix'; ?>"><?php } ?>
             </div>
 
+            <label class="sw"><input type="checkbox" id="want-pass" <?php if ($o('mpass') !== '') echo 'checked'; ?>> <span><b>Proteger minhas listas com senha</b> <span style="font-size:12.5px">(opcional)</span></span></label>
+            <div id="pass-box" hidden style="margin-top:8px">
+                <input class="in" type="password" name="mpass" minlength="4" maxlength="64" autocomplete="new-password" placeholder="Crie uma senha (minimo 4 caracteres)">
+                <div class="hint">Usada em <b>Minhas listas</b> para trocar, ver ou remover listas deste aparelho.</div>
+            </div>
+
             <label class="chk"><input type="checkbox" name="rights" value="1" required> <span>Declaro que a lista informada e minha ou que tenho direito legal de acessa-la, e concordo com os <a href="terms.php" target="_blank">Termos</a> e a <a href="privacy_policy.php" target="_blank">Privacidade</a>.</span></label>
 
             <button class="btn btn-p" type="submit" id="btn-go" style="margin-top:18px"><span><?php echo e($cfg['cta_text'] !== '' ? $cfg['cta_text'] : 'Ativar agora'); ?></span> <i class="ri-arrow-right-line"></i></button>
@@ -408,6 +315,8 @@ footer a{color:var(--mut)}
         </form>
         <?php } ?>
     </section>
+
+    <p style="text-align:center;margin:16px 0 0;font-size:13.5px" class="muted">Ja ativou? <a href="listas.php" style="color:var(--c);font-weight:600;text-decoration:none">Gerencie suas listas &rarr;</a></p>
 
     <?php if ($cfg['show_steps'] === '1') { ?>
     <div class="steps">
@@ -417,12 +326,6 @@ footer a{color:var(--mut)}
     </div>
     <?php } ?>
 
-    <section class="card sec" id="consulta">
-        <h2>Consultar ativacao</h2>
-        <p style="color:var(--mut);font-size:13.5px;margin:0 0 12px">Veja se o aparelho esta ativo e ate quando.</p>
-        <div class="row"><input class="in mono" id="q-mac" maxlength="17" placeholder="A1:B2:C3:D4:E5:F6"><button class="btn" type="button" id="q-btn" aria-label="Consultar"><i class="ri-search-line"></i></button></div>
-        <div id="q-res" style="margin-top:12px"></div>
-    </section>
 
     <?php if ($cfg['show_faq'] === '1') { ?>
     <section class="card sec faq">
@@ -431,19 +334,21 @@ footer a{color:var(--mut)}
         <details><summary>Preciso instalar outro app?</summary><p>Nao. Depois da ativacao, feche e abra o mesmo aplicativo: ele entra sozinho.</p></details>
         <details><summary>Onde encontro o MAC?</summary><p>Na tela de login do aplicativo, normalmente na parte de baixo.</p></details>
         <details><summary>Quais formatos funcionam?</summary><p>Links M3U/M3U Plus, M3U8 (HLS), MPEG-TS (.ts) e Xtream Codes. Se a imagem travar, refaca a ativacao trocando o formato entre MPEG-TS e HLS.</p></details>
-        <details><summary>Como renovo ou troco de lista?</summary><p>Faca uma nova ativacao com o mesmo MAC. Os dias novos sao somados ao que resta e a lista e atualizada.</p></details>
+        <details><summary>Como troco ou adiciono listas?</summary><p>Em <b>Minhas listas</b>, entre com o MAC do aparelho. La voce adiciona, troca, ve ou remove listas e pode proteger tudo com senha.</p></details>
+        <details><summary>Como renovo?</summary><p>Faca uma nova ativacao com o mesmo MAC. Os dias novos sao somados ao que ainda resta.</p></details>
     </section>
     <?php } ?>
     <script>
     (function(){
         var f = document.getElementById('f');
         function fmtMac(v){ var h = v.replace(/[^0-9a-fA-F]/g,'').toUpperCase().slice(0,12); return h.replace(/(.{2})(?=.)/g,'$1:'); }
-        ['mac','q-mac'].forEach(function(id){ var el = document.getElementById(id); if (el) el.addEventListener('input', function(){ var end = el.selectionStart === el.value.length; el.value = fmtMac(el.value); if (end) el.selectionStart = el.selectionEnd = el.value.length; }); });
+        ['mac'].forEach(function(id){ var el = document.getElementById(id); if (el) el.addEventListener('input', function(){ var end = el.selectionStart === el.value.length; el.value = fmtMac(el.value); if (end) el.selectionStart = el.selectionEnd = el.value.length; }); });
         if (f) {
             var paid = document.getElementById('paid-fields'), go = document.getElementById('btn-go'), label = go.querySelector('span').textContent;
             function upd(){
                 var c = f.querySelector('input[name=plan]:checked'), free = c && parseFloat(c.getAttribute('data-price')) <= 0;
                 paid.hidden = !!free; go.querySelector('span').textContent = free ? 'Ativar teste gratis' : label;
+                var wp = document.getElementById('want-pass'); document.getElementById('pass-box').hidden = !wp.checked;
                 var m = f.querySelector('input[name=mode]:checked'), man = !!(m && m.value === 'manual');
                 document.getElementById('mode-link').hidden = man; var mm = document.getElementById('mode-manual'); if (mm) mm.hidden = !man;
             }
@@ -466,29 +371,8 @@ footer a{color:var(--mut)}
                 go.disabled = true; go.querySelector('span').textContent = 'Aguarde...';
             });
         }
-        var qb = document.getElementById('q-btn');
-        if (qb) qb.onclick = function(){
-            var r = document.getElementById('q-res'), m = document.getElementById('q-mac').value;
-            r.innerHTML = '<div class="status" style="margin:0"><span class="spin"></span></div>';
-            fetch('ativar.php?action=consulta&mac=' + encodeURIComponent(m), {cache:'no-store'}).then(function(x){ return x.json(); }).then(function(j){
-                var d = document.createElement('div'); d.className = 'alert ' + (j.active ? 'a-ok' : (j.ok ? 'a-info' : 'a-err')); d.style.margin = '0'; d.textContent = j.msg || 'Erro.'; r.innerHTML = ''; r.appendChild(d);
-                if (j.ok && !j.active) { var mi = document.getElementById('mac'); if (mi && !mi.value) mi.value = fmtMac(m); }
-            }).catch(function(){ r.innerHTML = '<div class="alert a-err" style="margin:0">Falha na consulta.</div>'; });
-        };
     })();
     </script>
 <?php } ?>
 
-    <p class="disc"><?php echo e(lf_disclaimer_text()); ?></p>
-    <footer>
-        <?php if (trim($cfg['footer_text']) !== '') { ?><div style="margin-bottom:6px"><?php echo e($cfg['footer_text']); ?></div><?php } ?>
-        &copy; <?php echo date('Y'); ?> <?php echo e($brand['name']); ?> &middot; <a href="terms.php">Termos</a> &middot; <a href="privacy_policy.php">Privacidade</a> &middot; <a href="policy/account_delete_request.php">Excluir dados</a>
-        <?php if ($mail) { ?> &middot; <a href="mailto:<?php echo e($mail); ?>">Suporte</a><?php } ?>
-    </footer>
-</div>
-<?php if ($wa || $tg) { ?><div class="float">
-    <?php if ($tg) { ?><a href="https://t.me/<?php echo e($tg); ?>" target="_blank" rel="noopener" aria-label="Telegram" style="background:#229ed9"><i class="ri-telegram-fill"></i></a><?php } ?>
-    <?php if ($wa) { ?><a href="https://wa.me/<?php echo e($wa); ?>" target="_blank" rel="noopener" aria-label="WhatsApp" style="background:#22c55e"><i class="ri-whatsapp-line"></i></a><?php } ?>
-</div><?php } ?>
-</body>
-</html>
+<?php lp_layout_end();

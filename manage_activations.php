@@ -35,6 +35,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             db_query("UPDATE tbl_devices SET act_output = ? WHERE id = ?", array(lp_norm_output(isset($_POST['output']) ? $_POST['output'] : ''), $id));
         } else if ($do === 'block' || $do === 'unblock') {
             db_query("UPDATE tbl_devices SET status = ? WHERE id = ?", array($do === 'unblock' ? 1 : 0, $id));
+        } else if ($do === 'reset_pass') {
+            // cliente esqueceu a senha de "Minhas listas": remove a senha (listas privadas voltam a ficar visiveis)
+            $m = lf_norm_mac($r['mac']);
+            if ($m === '') continue;
+            db_query("DELETE FROM tbl_lp_access WHERE mac = ?", array($m));
+            db_query("UPDATE tbl_lp_lists SET is_private = 0 WHERE mac = ?", array($m));
         } else if ($do === 'remove') {
             db_query("UPDATE tbl_devices SET act_user = '', act_pass = '', act_dns_id = 0" . ($hasExp ? ", act_expires = 0, act_source = ''" : "") . " WHERE id = ?", array($id));
         } else {
@@ -42,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $done++;
     }
-    $msgs = array('renew' => 'renovada(s)', 'unlimited' => 'sem vencimento', 'output' => 'com formato atualizado', 'block' => 'bloqueada(s)', 'unblock' => 'liberada(s)', 'remove' => 'removida(s)');
+    $msgs = array('renew' => 'renovada(s)', 'unlimited' => 'sem vencimento', 'output' => 'com formato atualizado', 'block' => 'bloqueada(s)', 'reset_pass' => 'com a senha do cliente removida', 'unblock' => 'liberada(s)', 'remove' => 'removida(s)');
     lf_flash($done ? $done . ' ativacao(oes) ' . (isset($msgs[$do]) ? $msgs[$do] : 'atualizada(s)') . '.' : 'Nada foi alterado.', $done ? 'success' : 'error');
     lf_redirect($back);
 }
@@ -83,6 +89,16 @@ $expCase = $hasExp ? "SUM(CASE WHEN v.status = 1 AND (v.act_expires = 0 OR v.act
         SUM(CASE WHEN v.act_expires > 0 AND v.act_expires <= $now THEN 1 ELSE 0 END) AS expired,"
     : "SUM(CASE WHEN v.status = 1 THEN 1 ELSE 0 END) AS active, 0 AS soon, 0 AS expired,";
 $sum = db_row("SELECT $expCase SUM(CASE WHEN v.status = 0 THEN 1 ELSE 0 END) AS blocked FROM tbl_devices v WHERE $scope");
+
+// listas do cliente (landing) e se o MAC tem senha
+$lsInfo = array();
+$macs = array();
+foreach ($rows as $r) if ($r['mac'] !== '') $macs[] = $r['mac'];
+if ($macs && lf_table_exists('tbl_lp_lists')) {
+    $ph = implode(',', array_fill(0, count($macs), '?'));
+    foreach (db_all("SELECT mac, COUNT(*) AS n FROM tbl_lp_lists WHERE mac IN ($ph) GROUP BY mac", $macs) as $x) $lsInfo[$x['mac']] = array('n' => (int)$x['n'], 'pass' => false);
+    foreach (db_all("SELECT mac FROM tbl_lp_access WHERE mac IN ($ph)", $macs) as $x) { if (!isset($lsInfo[$x['mac']])) $lsInfo[$x['mac']] = array('n' => 0, 'pass' => false); $lsInfo[$x['mac']]['pass'] = true; }
+}
 
 $qs = $_GET; unset($qs['page']);
 $qs_str = http_build_query($qs);
@@ -148,6 +164,7 @@ $link = function ($state) use ($f_source, $keyword) { return 'manage_activations
                         <button type="button" class="btn btn-sm btn-outline-primary bulk" data-do="output"><i class="ri-film-line"></i> Aplicar formato</button>
                         <button type="button" class="btn btn-sm btn-outline-secondary bulk" data-do="block"><i class="ri-forbid-line"></i> Bloquear</button>
                         <button type="button" class="btn btn-sm btn-outline-success bulk" data-do="unblock"><i class="ri-check-line"></i> Liberar</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary bulk" data-do="reset_pass" data-confirm="Remover a senha de 'Minhas listas' dos aparelhos selecionados? Use quando o cliente esquecer a senha."><i class="ri-key-2-line"></i> Resetar senha do cliente</button>
                         <button type="button" class="btn btn-sm btn-outline-danger bulk" data-do="remove" data-confirm="Remover a ativacao dos aparelhos selecionados? Eles voltam para a tela de login."><i class="ri-delete-bin-line"></i> Remover</button>
                     </div>
                     <div class="table-responsive">
@@ -175,6 +192,7 @@ $link = function ($state) use ($f_source, $keyword) { return 'manage_activations
                                     <td>
                                         <span class="lf-mono"><?php echo e($r['mac'] !== '' ? $r['mac'] : $r['device_key']); ?></span>
                                         <div class="lf-sub"><?php echo $site ? '<i class="ri-global-line"></i> site' : '<i class="ri-user-settings-line"></i> painel'; ?><?php if ($r['note'] !== '') echo ' &middot; ' . e($r['note']); ?></div>
+                                        <?php if ($site && isset($lsInfo[$r['mac']])) { $li = $lsInfo[$r['mac']]; ?><div class="lf-sub"><i class="ri-play-list-2-line"></i> <?php echo (int)$li['n']; ?> lista(s)<?php if ($li['pass']) echo ' &middot; <i class="ri-lock-line"></i> com senha'; ?></div><?php } ?>
                                     </td>
                                     <td><?php echo e($r['dns_base'] ? parse_url(html_entity_decode($r['dns_base'], ENT_QUOTES, 'UTF-8'), PHP_URL_HOST) : '-'); ?><div class="lf-sub">usuario: <?php echo e($r['act_user']); ?></div></td>
                                     <td><?php echo e(lp_output_label($out)); ?></td>
