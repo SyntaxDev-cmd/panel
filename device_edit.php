@@ -7,6 +7,7 @@
     include("includes/header.php");
     require("includes/lb_helper.php");
     require("language/language.php");
+    require_once("includes/landing.php");
 
     $row = null;
     if ($dev_id) {
@@ -31,6 +32,26 @@
         $pass = substr(trim((string)(isset($_POST['act_pass']) ? $_POST['act_pass'] : '')), 0, 190);
         $note = substr(trim((string)(isset($_POST['note']) ? $_POST['note'] : '')), 0, 120);
         $dns_id = isset($_POST['act_dns_id']) ? (int)$_POST['act_dns_id'] : 0;
+        $output = lp_norm_output(isset($_POST['act_output']) ? $_POST['act_output'] : '');
+
+        // link da lista colado (M3U / M3U8 / TS / Xtream): preenche servidor, usuario e senha sozinho
+        $m3u_in = isset($_POST['m3u_link']) ? trim((string)$_POST['m3u_link']) : '';
+        if ($m3u_in !== '') {
+            $lm = lp_parse_m3u($m3u_in);
+            if (!$lm) { lf_flash('Link da lista invalido: precisa ter servidor, usuario e senha (ex.: http://srv.com:8080/get.php?username=U&password=S).', 'error'); lf_redirect($back); }
+            $lowner = $row ? (int)$row['owner_id'] : (int)$lf_me['id'];
+            $dns_id = lp_dns_find($lowner, $lm['base']);
+            if (!$dns_id) {
+                $lo = db_row("SELECT id, username, max_dns, admin_type FROM tbl_admin WHERE id = ?", array($lowner));
+                if ($lo && (int)$lo['admin_type'] !== ROLE_ADMIN && (int)$lo['max_dns'] > 0 && (int)db_val("SELECT COUNT(*) FROM tbl_dns WHERE owner_id = ?", array($lowner)) >= (int)$lo['max_dns']) {
+                    lf_flash('Limite de DNS atingido para ' . $lo['username'] . '. Use uma DNS ja cadastrada.', 'error'); lf_redirect($back);
+                }
+                $dns_id = lp_dns_for($lowner, $lm['base']);
+                $dns_list = db_all("SELECT d.id, d.dns_title, d.owner_id, d.status, a.username AS owner_name FROM tbl_dns d LEFT JOIN tbl_admin a ON a.id = d.owner_id WHERE " . lf_scope_sql('d.owner_id') . " ORDER BY d.dns_title ASC");
+            }
+            $user = substr($lm['user'], 0, 120); $pass = substr($lm['pass'], 0, 190);
+            if ($output === '' && $lm['output'] !== '') $output = $lm['output'];
+        }
         $clear = isset($_POST['clear_activation']) && $_POST['clear_activation'] === '1';
         // vencimento (opcional): vale ate o fim do dia escolhido. Em branco = sem vencimento
         $expires = 0;
@@ -94,12 +115,12 @@
             db_query("UPDATE tbl_devices SET owner_id = ?, mac = ?, note = ?, act_dns_id = ?, act_user = ?, act_pass = ?, act_updated = ?, is_auto = 0 WHERE id = ?",
                 array($owner_id, $mac, $note, $dns_id, $user, $pass, $now, (int)$target['id']));
             if ($dns_id > 0) db_query("UPDATE tbl_devices SET dns_id = ? WHERE id = ?", array($dns_id, (int)$target['id']));
-            if (lf_has_expiry()) db_query("UPDATE tbl_devices SET act_expires = ?" . ($clear ? ", act_source = ''" : "") . " WHERE id = ?", array($expires, (int)$target['id']));
+            if (lf_has_expiry()) db_query("UPDATE tbl_devices SET act_expires = ?, act_output = ?" . ($clear ? ", act_source = ''" : "") . " WHERE id = ?", array($expires, $output, (int)$target['id']));
         } else {
             db_query("INSERT INTO tbl_devices (owner_id, dns_id, device_key, mac, platform, note, act_dns_id, act_user, act_pass, act_updated, is_auto, status, first_seen, last_seen)
                       VALUES (?, ?, ?, ?, 'outro', ?, ?, ?, ?, ?, 0, 1, ?, 0)",
                 array($owner_id, $dns_id, $mac, $mac, $note, $dns_id, $user, $pass, $now, $now));
-            if (lf_has_expiry() && $expires > 0) db_query("UPDATE tbl_devices SET act_expires = ? WHERE id = ?", array($expires, db_last_id()));
+            if (lf_has_expiry()) db_query("UPDATE tbl_devices SET act_expires = ?, act_output = ? WHERE id = ?", array($expires, $output, db_last_id()));
         }
 
         // o mesmo MAC ativado em outro registro da arvore deixaria duas ativacoes: vale so a mais nova
@@ -108,7 +129,7 @@
         }
 
         lf_flash($clear ? 'Ativacao removida. O aparelho volta a pedir usuario e senha.' : 'Aparelho ' . $mac . ' ativado. Abra (ou reabra) o app no aparelho para entrar.');
-        lf_redirect('manage_devices.php?keyword=' . urlencode($mac));
+        lf_redirect('manage_activations.php?keyword=' . urlencode($mac));
     }
 
     $v_mac  = $row ? ($row['mac'] !== '' ? $row['mac'] : $row['device_key']) : (isset($_GET['mac']) ? lf_norm_mac($_GET['mac']) : '');
@@ -116,6 +137,7 @@
     $v_user = $row ? ($row['act_user'] !== '' ? $row['act_user'] : $row['username']) : '';
     $v_pass = $row ? $row['act_pass'] : '';
     $v_note = $row ? $row['note'] : '';
+    $v_out  = ($row && isset($row['act_output'])) ? $row['act_output'] : '';
     $v_exp  = ($row && isset($row['act_expires']) && (int)$row['act_expires'] > 0) ? date('Y-m-d', (int)$row['act_expires']) : '';
     $platforms = lf_platforms();
 ?>
@@ -148,6 +170,12 @@
                             </div>
 
                             <div class="mb-3">
+                                <label class="form-label fw-semibold">Link da lista <span class="text-muted fw-normal">- opcional, preenche tudo sozinho</span></label>
+                                <input type="text" name="m3u_link" class="form-control lf-mono" placeholder="http://servidor.com:8080/get.php?username=USUARIO&amp;password=SENHA&amp;type=m3u_plus">
+                                <small class="text-muted">Aceita M3U, M3U8 (HLS), MPEG-TS (.ts) e Xtream. Se preencher, a DNS, o usuario e a senha abaixo sao ignorados.</small>
+                            </div>
+
+                            <div class="mb-3">
                                 <label class="form-label fw-semibold">DNS (servidor) do cliente</label>
                                 <select name="act_dns_id" class="form-control">
                                     <option value="0">Escolha...</option>
@@ -174,6 +202,14 @@
                             </div>
 
                             <?php if (lf_has_expiry()) { ?>
+                            <div class="mb-3" style="max-width: 260px;">
+                                <label class="form-label fw-semibold">Formato de reproducao</label>
+                                <select name="act_output" class="form-control">
+                                    <option value="" <?php if ($v_out === '') echo 'selected'; ?>>Automatico</option>
+                                    <option value="ts" <?php if ($v_out === 'ts') echo 'selected'; ?>>MPEG-TS (.ts)</option>
+                                    <option value="m3u8" <?php if ($v_out === 'm3u8') echo 'selected'; ?>>HLS (.m3u8)</option>
+                                </select>
+                            </div>
                             <div class="mb-3" style="max-width: 260px;">
                                 <label class="form-label fw-semibold">Vencimento <span class="text-muted fw-normal">- opcional</span></label>
                                 <input type="date" name="act_expires" class="form-control" value="<?php echo e($v_exp); ?>">

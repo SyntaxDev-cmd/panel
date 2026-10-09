@@ -27,6 +27,15 @@
     <script type="text/javascript">
     
         $.ajaxSetup({ headers: { "X-CSRF-Token": $('meta[name="csrf-token"]').attr("content") } });
+        // token CSRF em todos os formularios POST (inclusive os antigos)
+        (function () {
+            var t = $('meta[name="csrf-token"]').attr("content");
+            $('form').each(function () {
+                if ((this.getAttribute('method') || '').toLowerCase() === 'post' && !this.querySelector('input[name="csrf"]')) {
+                    $('<input type="hidden" name="csrf">').val(t).appendTo(this);
+                }
+            });
+        })();
 
         $(document).ready(function(event) {
             $(document).on("click", ".btn_enable_disable", function(e) {

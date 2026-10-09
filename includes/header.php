@@ -15,7 +15,7 @@ if (!$lf_me || (int)$lf_me['status'] !== 1) {
 $_SESSION['admin_type'] = (int)$lf_me['admin_type'];
 $_SESSION['admin_name'] = $lf_me['username'];
 
-$lf_only_admin  = array('settings.php', 'settings_app.php', 'settings_login.php', 'settings_landing.php', 'landing_orders.php');
+$lf_only_admin  = array('settings.php', 'settings_app.php', 'settings_login.php', 'settings_landing.php', 'landing_orders.php', 'deletion_requests.php');
 $lf_users_pages = array('manage_admin.php', 'auth_profile.php');
 if ((in_array($currentFile, $lf_only_admin) && !lf_is_admin()) || (in_array($currentFile, $lf_users_pages) && !lf_can_manage_users())) {
     lf_flash('Voce nao tem permissao para acessar esta pagina.', 'error');
@@ -23,8 +23,15 @@ if ((in_array($currentFile, $lf_only_admin) && !lf_is_admin()) || (in_array($cur
     exit;
 }
 
+// todo POST do painel exige o token CSRF (o rodape coloca o token em todos os formularios)
+if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST' && !lf_csrf_ok()) {
+    lf_flash('Sessao expirada ou formulario invalido. Tente novamente.', 'error');
+    header("Location:" . $currentFile);
+    exit;
+}
+
 function lf_nav_active($files) { global $currentFile; return in_array($currentFile, (array)$files) ? 'active' : ''; }
-$lf_settings_pages = array('settings.php', 'settings_app.php', 'settings_login.php', 'settings_landing.php');
+$lf_settings_pages = array('settings.php', 'settings_app.php', 'settings_login.php', 'settings_landing.php', 'deletion_requests.php');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -151,6 +158,13 @@ $lf_settings_pages = array('settings.php', 'settings_app.php', 'settings_login.p
                 </li>
 
                 <li class="nsofts-sidebar-nav__item">
+                    <a href="manage_activations.php" class="nsofts-sidebar-nav__link <?php echo lf_nav_active(array('manage_activations.php', 'device_edit.php')); ?>">
+                        <i class="ri-shield-check-line nsofts-sidebar-nav__icon"></i>
+                        <span class="nsofts-sidebar-nav__text">Ativacoes</span>
+                    </a>
+                </li>
+
+                <li class="nsofts-sidebar-nav__item">
                     <a href="manage_devices.php" class="nsofts-sidebar-nav__link <?php echo lf_nav_active('manage_devices.php'); ?>">
                         <i class="ri-device-line nsofts-sidebar-nav__icon"></i>
                         <span class="nsofts-sidebar-nav__text">Dispositivos</span>
@@ -190,7 +204,8 @@ $lf_settings_pages = array('settings.php', 'settings_app.php', 'settings_login.p
                         <li><a href="settings_login.php" class="nsofts-submenu__link <?php echo lf_nav_active('settings_login.php'); ?>">Modo de login do app</a></li>
                         <li><a href="settings_landing.php" class="nsofts-submenu__link <?php echo lf_nav_active('settings_landing.php'); ?>">Landing page e Mercado Pago</a></li>
                         <li><a href="settings.php" class="nsofts-submenu__link <?php echo lf_nav_active('settings.php'); ?>">Painel</a></li>
-                        <li><a href="settings_app.php" class="nsofts-submenu__link <?php echo lf_nav_active('settings_app.php'); ?>">App (geral)</a></li>
+                        <li><a href="settings_app.php" class="nsofts-submenu__link <?php echo lf_nav_active('settings_app.php'); ?>">App, politicas e termos</a></li>
+                        <li><a href="deletion_requests.php" class="nsofts-submenu__link <?php echo lf_nav_active('deletion_requests.php'); ?>">Pedidos de exclusao de dados</a></li>
                     </ul>
                 </li>
                 <?php } ?>

@@ -16,7 +16,7 @@ define('ROLE_REVENDA', 0);   // revenda comum: gerencia apenas as proprias DNS
 
 define('LF_ONLINE_SECONDS', 300);   // "conectado agora" = sinal nos ultimos 5 minutos
 define('LF_ACTIVE_DAYS', 30);       // "ativo" = usado nos ultimos 30 dias (conta no limite)
-define('LF_SCHEMA_VERSION', 5);
+define('LF_SCHEMA_VERSION', 6);
 
 // ---------- saida segura em HTML ----------
 function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -191,6 +191,27 @@ function lf_migrate() {
         KEY `idx_mp_payment` (`mp_payment_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+    // --- v6: formato do link (ts | m3u8), pedidos de exclusao de dados (lojas) e politicas novas ---
+    lf_add_col('tbl_devices', 'act_output', "VARCHAR(10) NOT NULL DEFAULT ''");
+    lf_add_col('tbl_lp_orders', 'output', "VARCHAR(10) NOT NULL DEFAULT ''");
+    db_query("CREATE TABLE IF NOT EXISTS `tbl_policy_deletion` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `policy_type` VARCHAR(40) NOT NULL DEFAULT '',
+        `user_email` VARCHAR(190) NOT NULL DEFAULT '',
+        `report_msg` TEXT NULL,
+        `deletion_on` INT NOT NULL DEFAULT 0,
+        `status` TINYINT(1) NOT NULL DEFAULT 0,
+        PRIMARY KEY (`id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    lf_add_col('tbl_policy_deletion', 'status', "TINYINT(1) NOT NULL DEFAULT 0");
+    // troca as politicas de exemplo (texto padrao em ingles do instalador) pelos modelos aceitos nas lojas
+    require_once(__DIR__ . '/policies.php');
+    $pol = db_row("SELECT app_privacy_policy, app_terms FROM tbl_settings WHERE id = 1");
+    if ($pol) {
+        if (lf_policy_is_placeholder($pol['app_privacy_policy'])) db_query("UPDATE tbl_settings SET app_privacy_policy = ? WHERE id = 1", array(lf_policy_template('privacy')));
+        if (lf_policy_is_placeholder($pol['app_terms'])) db_query("UPDATE tbl_settings SET app_terms = ? WHERE id = 1", array(lf_policy_template('terms')));
+    }
+
     // --- dados antigos: liga cada DNS ao dono e gera o codigo que faltar ---
     db_query("UPDATE tbl_dns d INNER JOIN tbl_admin a ON a.username = d.cliente SET d.owner_id = a.id WHERE d.owner_id = 0");
     $root = (int)db_val("SELECT id FROM tbl_admin WHERE admin_type = ? ORDER BY id ASC LIMIT 1", array(ROLE_ADMIN));
@@ -200,7 +221,8 @@ function lf_migrate() {
     }
 
     if (lf_col_exists('tbl_dns', 'partner_code') && lf_col_exists('tbl_admin', 'parent_id') && lf_col_exists('tbl_settings', 'login_mode') && lf_col_exists('tbl_devices', 'act_user') && lf_col_exists('tbl_dns', 'dns_backup')
-        && lf_col_exists('tbl_devices', 'act_expires') && lf_col_exists('tbl_dns', 'origin') && lf_table_exists('tbl_lp_orders') && lf_table_exists('tbl_lp_plans') && lf_table_exists('tbl_lp_config')) {
+        && lf_col_exists('tbl_devices', 'act_expires') && lf_col_exists('tbl_dns', 'origin') && lf_table_exists('tbl_lp_orders') && lf_table_exists('tbl_lp_plans') && lf_table_exists('tbl_lp_config')
+        && lf_col_exists('tbl_devices', 'act_output') && lf_col_exists('tbl_lp_orders', 'output') && lf_table_exists('tbl_policy_deletion')) {
         @file_put_contents($marker, date('c'));
     }
 }

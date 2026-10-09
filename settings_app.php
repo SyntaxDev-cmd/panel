@@ -26,7 +26,7 @@
             'app_contact'  =>  $_POST['app_contact'],
             'app_website'  =>  $_POST['app_website'],
             'app_developed_by'  =>  $_POST['app_developed_by'],
-            'app_description'  =>  addslashes($_POST['app_description'])
+            'app_description'  =>  $_POST['app_description']
         );
         $settings_edit=Update('tbl_settings', $data, "WHERE id = '1'");
         
@@ -37,7 +37,7 @@
        
     } else if(isset($_POST['policy_submit'])){
         
-        $data = array('app_privacy_policy'  =>  addslashes($_POST['app_privacy_policy']));
+        $data = array('app_privacy_policy'  =>  $_POST['app_privacy_policy']);
         $settings_edit=Update('tbl_settings', $data, "WHERE id = '1'");
         
         $_SESSION['msg']="11";
@@ -47,7 +47,7 @@
         
     } else if(isset($_POST['terms_submit'])){
         
-        $data = array('app_terms'  =>  addslashes($_POST['app_terms']));
+        $data = array('app_terms'  =>  $_POST['app_terms']);
         $settings_edit=Update('tbl_settings', $data, "WHERE id = '1'");
         
         $_SESSION['msg']="11";
@@ -55,6 +55,15 @@
         header( "Location:settings_app.php");
         exit;
         
+    } else if(isset($_POST['policy_template'])) {
+
+        // modelos prontos (reprodutor de midia, LGPD/GDPR, Google Play, Amazon, Roku, LG, Samsung, Apple)
+        require_once("includes/policies.php");
+        Update('tbl_settings', array('app_privacy_policy' => lf_policy_template('privacy'), 'app_terms' => lf_policy_template('terms')), "WHERE id = '1'");
+        lf_flash('Politica de privacidade e termos trocados pelos modelos recomendados. Revise o e-mail e o site em "Geral".');
+        header("Location:settings_app.php");
+        exit;
+
     } else if(isset($_POST['notification_submit'])) {
         
         $data = array(
@@ -122,37 +131,37 @@
                                     <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label">Email</label>
                                         <div class="col-sm-10">
-                                            <input type="text" class="form-control" name="app_email" id="app_email" value="<?php echo $settings_data['app_email']?>" >
+                                            <input type="text" class="form-control" name="app_email" id="app_email" value="<?php echo e($settings_data['app_email']); ?>" >
                                         </div>
                                     </div>
                                     <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label">Author</label>
                                         <div class="col-sm-10">
-                                            <input type="text" class="form-control" name="app_author" id="app_author" value="<?php echo $settings_data['app_author']?>" >
+                                            <input type="text" class="form-control" name="app_author" id="app_author" value="<?php echo e($settings_data['app_author']); ?>" >
                                         </div>
                                     </div>
                                     <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label">Contact</label>
                                         <div class="col-sm-10">
-                                            <input type="text" class="form-control" name="app_contact" id="app_contact" value="<?php echo $settings_data['app_contact']?>" >
+                                            <input type="text" class="form-control" name="app_contact" id="app_contact" value="<?php echo e($settings_data['app_contact']); ?>" >
                                         </div>
                                     </div>
                                     <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label">Website</label>
                                         <div class="col-sm-10">
-                                            <input type="text" class="form-control" name="app_website" id="app_website" value="<?php echo $settings_data['app_website']?>" >
+                                            <input type="text" class="form-control" name="app_website" id="app_website" value="<?php echo e($settings_data['app_website']); ?>" >
                                         </div>
                                     </div>
                                     <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label">Developed By</label>
                                         <div class="col-sm-10">
-                                            <input type="text" class="form-control" name="app_developed_by" id="app_developed_by" value="<?php echo $settings_data['app_developed_by']?>" >
+                                            <input type="text" class="form-control" name="app_developed_by" id="app_developed_by" value="<?php echo e($settings_data['app_developed_by']); ?>" >
                                         </div>
                                     </div>
                                     <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label">Description</label>
                                         <div class="col-sm-10">
-                                            <textarea name="app_description" id="app_description" class="form-control" ><?php echo stripslashes($settings_data['app_description']); ?></textarea>
+                                            <textarea name="app_description" id="app_description" class="form-control" ><?php echo htmlspecialchars(stripslashes($settings_data['app_description']), ENT_QUOTES, 'UTF-8'); ?></textarea>
                                         </div>
                                     </div>
                                     <button type="submit" name="submit_general" class="btn btn-primary" style="min-width: 120px;">Save</button>
@@ -162,7 +171,9 @@
                             <!--Privacy Policy-->
                             <div class="tab-pane fade" id="nsofts_setting_content_4" role="tabpanel" aria-labelledby="nsofts_setting_4" tabindex="0">
                                 <form action="" name="settings_policy" method="POST" enctype="multipart/form-data">
-                                    <h4 class="mb-4">Privacy Policy</h4>
+                                    <h4 class="mb-2">Politica de Privacidade</h4>
+                                    <div class="lf-note mb-3"><i class="ri-shield-check-line"></i><div>Use os <b>modelos recomendados</b> (reprodutor de midia, sem conteudo, LGPD/GDPR, Google Play, Amazon, Roku, LG, Samsung e Apple). Os textos usam o nome do app, o e-mail e o site de "Geral" automaticamente.
+                                        <button type="submit" name="policy_template" class="btn btn-sm btn-outline-primary ms-1" onclick="return confirm('Substituir a politica e os termos atuais pelos modelos recomendados?');">Usar modelos recomendados</button></div></div>
                                     <div class="pb-clipboard mb-2">
                                         <span class="pb-clipboard__url"><span id="clipboard_policy"><?=$privacy_policy_file_path ?></span></span>
                                         <a class="pb-clipboard__link btn_policy" href="javascript:void(0);" data-clipboard-action="copy" data-clipboard-target="#clipboard_base_url" data-bs-toggle="tooltip" data-bs-placement="top" title="Copy">
@@ -173,7 +184,7 @@
                                     </div>
                                     <div>
                                         <textarea name="app_privacy_policy" id="app_privacy_policy" rows="5" class="nsofts-editor mb-4">
-                                            <?php echo stripslashes($settings_data['app_privacy_policy']); ?>
+                                            <?php echo htmlspecialchars(stripslashes($settings_data['app_privacy_policy']), ENT_QUOTES, 'UTF-8'); ?>
                                             
                                         </textarea>
                                     </div>
@@ -195,7 +206,7 @@
                                     </div>
                                     <div>
                                         <textarea name="app_terms" id="app_terms" rows="5" class="nsofts-editor mb-4">
-                                           <?php echo stripslashes($settings_data['app_terms']); ?>
+                                           <?php echo htmlspecialchars(stripslashes($settings_data['app_terms']), ENT_QUOTES, 'UTF-8'); ?>
                                         </textarea>
                                     </div>
                                     <button type="submit" name="terms_submit" class="btn btn-primary" style="min-width: 120px;">Save</button>
@@ -209,13 +220,13 @@
                                     <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label">OneSignal App ID</label>
                                         <div class="col-sm-10">
-                                            <input type="text" name="onesignal_app_id" id="onesignal_app_id" value="<?php echo $settings_data['onesignal_app_id']; ?>"  class="form-control">
+                                            <input type="text" name="onesignal_app_id" id="onesignal_app_id" value="<?php echo e($settings_data['onesignal_app_id']); ?>"  class="form-control">
                                         </div>
                                     </div>
                                     <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label">OneSignal Rest Key</label>
                                         <div class="col-sm-10">
-                                            <input type="text" name="onesignal_rest_key" id="onesignal_rest_key" value="<?php echo $settings_data['onesignal_rest_key']; ?>"   class="form-control">
+                                            <input type="text" name="onesignal_rest_key" id="onesignal_rest_key" value="<?php echo e($settings_data['onesignal_rest_key']); ?>"   class="form-control">
                                         </div>
                                     </div>
                                     <button type="submit" name="notification_submit" class="btn btn-primary" style="min-width: 120px;">Save</button>

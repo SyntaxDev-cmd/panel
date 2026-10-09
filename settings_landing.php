@@ -17,13 +17,42 @@
                 'title' => $p('title', 120),
                 'subtitle' => $p('subtitle', 400),
                 'whatsapp' => lf_only_digits($p('whatsapp', 30)),
-                'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $p('color')) ? $p('color') : '#7c3aed',
+                'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $p('color')) ? $p('color') : '#6d5efc',
                 'pay_pix' => isset($_POST['pay_pix']) ? '1' : '0',
                 'pay_card' => isset($_POST['pay_card']) ? '1' : '0',
                 'pix_minutes' => (string)max(10, min(1440, (int)$p('pix_minutes'))),
                 'check_m3u' => isset($_POST['check_m3u']) ? '1' : '0',
                 'mp_public_key' => $p('mp_public_key', 200),
+                // branding
+                'brand_name' => $p('brand_name', 80),
+                'theme' => in_array($p('theme'), array('auto', 'dark', 'light'), true) ? $p('theme') : 'auto',
+                'cta_text' => $p('cta_text', 40),
+                'footer_text' => $p('footer_text', 200),
+                'telegram' => preg_replace('/[^A-Za-z0-9_]/', '', ltrim($p('telegram', 60), '@')),
+                'support_email' => filter_var($p('support_email', 150), FILTER_VALIDATE_EMAIL) ? $p('support_email', 150) : '',
+                'show_steps' => isset($_POST['show_steps']) ? '1' : '0',
+                'show_faq' => isset($_POST['show_faq']) ? '1' : '0',
+                'allow_manual' => isset($_POST['allow_manual']) ? '1' : '0',
+                'default_output' => lp_norm_output($p('default_output')) === 'm3u8' ? 'm3u8' : 'ts',
             );
+            // logo da landing (PNG/JPG/WEBP/SVG nao: so imagens de verdade; ate 2 MB)
+            $curLogo = lp_cfg('brand_logo');
+            if (isset($_POST['remove_logo'])) {
+                if ($curLogo !== '' && is_file('images/' . basename($curLogo))) @unlink('images/' . basename($curLogo));
+                $vals['brand_logo'] = '';
+            } else if (!empty($_FILES['brand_logo']['name']) && is_uploaded_file($_FILES['brand_logo']['tmp_name'])) {
+                $info = @getimagesize($_FILES['brand_logo']['tmp_name']);
+                $exts = array(IMAGETYPE_PNG => 'png', IMAGETYPE_JPEG => 'jpg', IMAGETYPE_WEBP => 'webp', IMAGETYPE_GIF => 'gif');
+                if (!$info || !isset($exts[$info[2]]) || $_FILES['brand_logo']['size'] > 2 * 1024 * 1024) {
+                    lf_flash('Logo invalida. Envie PNG, JPG, WEBP ou GIF de ate 2 MB.', 'error');
+                    lf_redirect('settings_landing.php');
+                }
+                $name = 'lp_logo_' . bin2hex(random_bytes(4)) . '.' . $exts[$info[2]];
+                if (move_uploaded_file($_FILES['brand_logo']['tmp_name'], 'images/' . $name)) {
+                    if ($curLogo !== '' && is_file('images/' . basename($curLogo))) @unlink('images/' . basename($curLogo));
+                    $vals['brand_logo'] = $name;
+                }
+            }
             if ($vals['pay_pix'] === '0' && $vals['pay_card'] === '0') $vals['pay_pix'] = '1';
             // campos secretos: em branco = mantem o que ja esta salvo
             foreach (array('mp_access_token', 'mp_webhook_secret') as $k) {
@@ -69,6 +98,7 @@
     }
 
     $cfg = lp_cfg();
+    $brand = lp_brand();
     $plans = db_all("SELECT * FROM tbl_lp_plans ORDER BY sort ASC, price ASC, id ASC");
     $admins = db_all("SELECT id, username, admin_type FROM tbl_admin WHERE status = 1 ORDER BY admin_type DESC, username ASC");
     $owner = lp_owner();
@@ -105,9 +135,44 @@
             </div>
         </div>
 
-        <form action="" method="POST" autocomplete="off">
+        <form action="" method="POST" autocomplete="off" enctype="multipart/form-data">
             <?php echo lf_csrf_field(); ?>
             <input type="hidden" name="do" value="config">
+
+            <div class="card mb-4"><div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-start flex-wrap" style="gap:10px">
+                    <div><h5 class="mb-1">Marca (branding)</h5><p class="text-muted mb-0"><small>Logo, nome, cor e tema da landing page e das paginas de politica.</small></p></div>
+                    <a href="ativar.php" target="_blank" class="btn btn-outline-primary btn-sm"><i class="ri-eye-line"></i> Pre-visualizar</a>
+                </div>
+                <div class="row g-4 mt-1">
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold">Logo</label>
+                        <div class="lf-brand-prev mb-2" style="border:1px dashed var(--ns-border-color,#d0d0d8);border-radius:14px;padding:16px;text-align:center;min-height:96px;display:flex;align-items:center;justify-content:center">
+                            <?php if ($brand['logo']) { ?><img src="<?php echo e($brand['logo']); ?>?v=<?php echo time(); ?>" alt="" style="max-height:64px;max-width:100%;object-fit:contain"><?php } else { ?><span class="text-muted small">Sem logo</span><?php } ?>
+                        </div>
+                        <input type="file" name="brand_logo" class="form-control" accept="image/png,image/jpeg,image/webp,image/gif">
+                        <small class="text-muted"><?php echo $cfg['brand_logo'] !== '' ? 'Logo propria da landing.' : 'Usando a logo do painel. Envie outra se quiser.'; ?></small>
+                        <?php if ($cfg['brand_logo'] !== '') { ?><div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="remove_logo" id="rl"><label class="form-check-label small" for="rl">Voltar para a logo do painel</label></div><?php } ?>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="row g-3">
+                            <div class="col-sm-6"><label class="form-label fw-semibold">Nome da marca</label><input type="text" name="brand_name" class="form-control" maxlength="80" placeholder="<?php echo e(APP_NAME); ?>" value="<?php echo e($cfg['brand_name']); ?>"></div>
+                            <div class="col-6 col-sm-3"><label class="form-label fw-semibold">Cor</label><input type="color" name="color" class="form-control form-control-color w-100" value="<?php echo e($brand['color']); ?>"></div>
+                            <div class="col-6 col-sm-3"><label class="form-label fw-semibold">Tema</label>
+                                <select name="theme" class="form-control"><?php foreach (array('auto' => 'Automatico', 'light' => 'Claro', 'dark' => 'Escuro') as $k => $l) { ?><option value="<?php echo $k; ?>" <?php if ($brand['theme'] === $k) echo 'selected'; ?>><?php echo $l; ?></option><?php } ?></select></div>
+                            <div class="col-sm-6"><label class="form-label fw-semibold">Texto do botao</label><input type="text" name="cta_text" class="form-control" maxlength="40" value="<?php echo e($cfg['cta_text']); ?>"></div>
+                            <div class="col-sm-6"><label class="form-label fw-semibold">Texto do rodape <span class="text-muted fw-normal">- opcional</span></label><input type="text" name="footer_text" class="form-control" maxlength="200" placeholder="CNPJ, endereco..." value="<?php echo e($cfg['footer_text']); ?>"></div>
+                            <div class="col-sm-4"><label class="form-label fw-semibold">Telegram</label><input type="text" name="telegram" class="form-control" placeholder="@suporte" value="<?php echo e($cfg['telegram']); ?>"></div>
+                            <div class="col-sm-8"><label class="form-label fw-semibold">E-mail de suporte</label><input type="email" name="support_email" class="form-control" placeholder="suporte@seusite.com" value="<?php echo e($cfg['support_email']); ?>"></div>
+                            <div class="col-12 d-flex flex-wrap" style="gap:18px">
+                                <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="show_steps" id="ss" <?php if ($cfg['show_steps'] === '1') echo 'checked'; ?>><label class="form-check-label" for="ss">Mostrar "como funciona"</label></div>
+                                <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="show_faq" id="sf" <?php if ($cfg['show_faq'] === '1') echo 'checked'; ?>><label class="form-check-label" for="sf">Mostrar perguntas frequentes</label></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div></div>
+
             <div class="row g-4">
                 <div class="col-lg-6">
                     <div class="card h-100"><div class="card-body p-4">
@@ -125,13 +190,9 @@
                             <textarea name="subtitle" class="form-control" rows="3" maxlength="400"><?php echo e($cfg['subtitle']); ?></textarea>
                         </div>
                         <div class="row g-3 mb-3">
-                            <div class="col-sm-7">
+                            <div class="col-12">
                                 <label class="form-label fw-semibold">WhatsApp do suporte</label>
                                 <input type="text" name="whatsapp" class="form-control" placeholder="5511999999999" value="<?php echo e($cfg['whatsapp']); ?>">
-                            </div>
-                            <div class="col-sm-5">
-                                <label class="form-label fw-semibold">Cor</label>
-                                <input type="color" name="color" class="form-control form-control-color w-100" value="<?php echo e($cfg['color']); ?>">
                             </div>
                         </div>
                         <div class="mb-3">
@@ -143,9 +204,21 @@
                             </select>
                             <small class="text-muted">Os aparelhos ativados pelo site aparecem em Dispositivos deste usuario.</small>
                         </div>
-                        <div class="form-check form-switch">
+                        <div class="form-check form-switch mb-2">
                             <input class="form-check-input" type="checkbox" name="check_m3u" id="check_m3u" <?php if ($cfg['check_m3u'] === '1') echo 'checked'; ?>>
-                            <label class="form-check-label" for="check_m3u">Conferir usuario/senha do link M3U no servidor antes de cobrar</label>
+                            <label class="form-check-label" for="check_m3u">Conferir usuario/senha da lista no servidor antes de cobrar</label>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" name="allow_manual" id="allow_manual" <?php if ($cfg['allow_manual'] === '1') echo 'checked'; ?>>
+                            <label class="form-check-label" for="allow_manual">Aceitar servidor + usuario + senha (alem do link)</label>
+                        </div>
+                        <div style="max-width:280px">
+                            <label class="form-label fw-semibold">Formato padrao</label>
+                            <select name="default_output" class="form-control">
+                                <option value="ts" <?php if ($cfg['default_output'] !== 'm3u8') echo 'selected'; ?>>MPEG-TS (.ts)</option>
+                                <option value="m3u8" <?php if ($cfg['default_output'] === 'm3u8') echo 'selected'; ?>>HLS (.m3u8)</option>
+                            </select>
+                            <small class="text-muted">Usado quando o link do cliente nao informa o formato.</small>
                         </div>
                     </div></div>
                 </div>

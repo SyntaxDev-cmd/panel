@@ -11,7 +11,11 @@ function Insert($table, $data){
 
     //echo "INSERT INTO $table(".implode(",",$fields).") VALUES ('".implode("','", $values )."');";
     //exit;  
-    mysqli_query($mysqli, "INSERT INTO $table(" . implode(",", $fields) . ") VALUES ('" . implode("','", $values) . "');") or die(mysqli_error($mysqli));
+    $fields = array_map(function ($f) { return '`' . str_replace('`', '', $f) . '`'; }, $fields);
+    $values = array_map(array($mysqli, 'real_escape_string'), array_map('strval', array_values($data)));
+    $ok = mysqli_query($mysqli, "INSERT INTO $table(" . implode(",", $fields) . ") VALUES ('" . implode("','", $values) . "');");
+    if (!$ok) error_log('[painel] Insert ' . $table . ': ' . mysqli_error($mysqli));
+    return $ok;
 }
 
 // Update Data, Where clause is left optional
@@ -34,7 +38,8 @@ function Update($table_name, $form_data, $where_clause = ''){
     // loop and build the column /
     $sets = array();
     foreach ($form_data as $column => $value) {
-        $sets[] = "`" . $column . "` = '" . $value . "'";
+        // valores sempre escapados (antes um apostrofo no nome do app quebrava o UPDATE)
+        $sets[] = "`" . str_replace('`', '', $column) . "` = '" . $mysqli->real_escape_string((string)$value) . "'";
     }
     $sql .= implode(', ', $sets);
 

@@ -1,184 +1,89 @@
 <?php
-    $page_title="Data Deletion Policy";
-    include("../includes/db_helper.php");
-    require("../includes/lb_helper.php");
-    
-    $client_lang = array();
-    $client_lang['1'] = "Email format is invalid !";
-    $client_lang['2']="Your registration is completed. Wait until admin approve it";
-    $client_lang['3']="Submitted successfully.";
-    
-    if(isset($_POST['submit_clear'])){
-        
-        $email=addslashes(trim($_POST['user_email']));
-        
-        $data = array(
-            'policy_type'  =>  'Clear Data',
-            'user_email'  =>  $_POST['user_email'],
-            'report_msg'  =>  '',
-            'deletion_on'  =>  strtotime(date('d-m-Y h:i:s A')),
-        );
-        $qry = Insert('tbl_policy_deletion',$data);
-        $_SESSION['class']="success";
-        $_SESSION['msg']="3";
-        header( "Location:account_delete_request.php");
-        exit;
-        
-    } else if(isset($_POST['submit_delete'])){
-        
-        $email=addslashes(trim($_POST['user_email']));
-        
-        $data = array(
-            'policy_type'  =>  'Delete Account',
-            'user_email'  =>  $_POST['user_email'],
-            'report_msg'  =>  '',
-            'deletion_on'  =>  strtotime(date('d-m-Y h:i:s A')),
-        );
-        $qry = Insert('tbl_policy_deletion',$data);
-        $_SESSION['class']="success";
-        $_SESSION['msg']="3";
-        header( "Location:account_delete_request.php");
-        exit;
+// ============================================================
+//  PEDIDO DE EXCLUSAO DE DADOS / CONTA (link exigido pelo Google Play e demais lojas)
+//  Os pedidos aparecem no painel em Configuracoes > Pedidos de exclusao.
+// ============================================================
+include("../includes/db_helper.php");
+require_once("../includes/landing.php");
+require_once("../includes/policies.php");
+
+header('X-Frame-Options: SAMEORIGIN');
+header('X-Content-Type-Options: nosniff');
+
+$msg = ''; $ok = false;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $who  = isset($_POST['user_email']) && is_string($_POST['user_email']) ? substr(trim($_POST['user_email']), 0, 190) : '';
+    $type = (isset($_POST['type']) && $_POST['type'] === 'clear') ? 'Clear Data' : 'Delete Account';
+    $note = isset($_POST['note']) && is_string($_POST['note']) ? substr(trim($_POST['note']), 0, 1000) : '';
+    if (!lf_csrf_ok()) {
+        $msg = 'Sessao expirada. Tente novamente.';
+    } else if (!empty($_POST['website'])) {
+        $msg = 'Nao foi possivel enviar.';
+    } else if ($who === '') {
+        $msg = 'Informe o e-mail, o usuario ou o MAC do aparelho.';
+    } else if (!empty($_SESSION['del_sent']) && time() - (int)$_SESSION['del_sent'] < 60) {
+        $msg = 'Aguarde um minuto para enviar outro pedido.';
+    } else {
+        $mac = lf_norm_mac($who);
+        db_query("INSERT INTO tbl_policy_deletion (policy_type, user_email, report_msg, deletion_on, status) VALUES (?, ?, ?, ?, 0)",
+            array($type, $mac !== '' ? $mac : $who, $note, time()));
+        $_SESSION['del_sent'] = time();
+        $ok = true;
+        $msg = 'Pedido recebido. Seus dados serao removidos em ate 30 dias (exceto o que a lei obrigar a manter).';
     }
+}
+$brand = lp_brand();
+$logo = $brand['logo'] ? '../' . $brand['logo'] : '';
 ?>
-
- 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR" data-theme="<?php echo e($brand['theme']); ?>">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="ie=edge">
-
-	<!-- Seo Meta -->
-    <meta name="description" content="Admin panel | Dashboard">
-    <meta name="keywords" content="css3, html5">
-    
-    <!-- Website Title -->
-    <title>Data Deletion Policy | <?php echo APP_NAME;?></title>
-    
-    <!-- Favicon --> 
-    <link href="../images/<?php echo APP_LOGO;?>" rel="icon" sizes="32x32">
-    <link href="../images/<?php echo APP_LOGO;?>" rel="icon" sizes="192x192">
-
-    <!-- IOS Touch Icons -->
-    <link rel="apple-touch-icon" href="../images/<?php echo APP_LOGO;?>">
-    <link rel="apple-touch-icon" sizes="152x152" href="../images/<?php echo APP_LOGO;?>">
-    <link rel="apple-touch-icon" sizes="180x180" href="../images/<?php echo APP_LOGO;?>">
-    <link rel="apple-touch-icon" sizes="167x167" href="../images/<?php echo APP_LOGO;?>">
-
-    <!-- Google font -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-
-    <!-- Vendor styles -->
-    <link rel="stylesheet" href="../assets/vendors/bootstrap/bootstrap.min.css" type="text/css">
-    <link rel="stylesheet" href="../assets/vendors/remixicon/remixicon.min.css" type="text/css">
-    
-    <!-- Main style -->
-    <link rel="stylesheet" href="../assets/css/styles.css" type="text/css">
-    
-    <!--[if lt IE 9]>
-	    <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
-        <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
-    <![endif]-->
-
-</head>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Excluir meus dados | <?php echo e($brand['name']); ?></title>
+<?php if ($logo) { ?><link rel="icon" href="<?php echo e($logo); ?>"><?php } ?>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-    p {
-        color: #5e5e5e;
-    }
-    h1, h2, h3, h4, h5, h6 {
-    	color: #343434;
-    }
+:root{--c:<?php echo $brand['color']; ?>;--bg:#f7f7f9;--card:#fff;--soft:#f1f1f5;--txt:#16161d;--mut:#6c6c7a;--line:#e6e6ec}
+html[data-theme=dark]{--bg:#0a0a0f;--card:#121219;--soft:#191922;--txt:#ededf3;--mut:#9898a8;--line:#25252f}
+@media (prefers-color-scheme:dark){html[data-theme=auto]{--bg:#0a0a0f;--card:#121219;--soft:#191922;--txt:#ededf3;--mut:#9898a8;--line:#25252f}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.6 Inter,system-ui,sans-serif}
+.w{max-width:480px;margin:0 auto;padding:28px 16px 50px}
+.top{display:flex;align-items:center;gap:10px;font-weight:700;margin-bottom:20px;text-decoration:none;color:inherit}.top img{height:34px;border-radius:8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px}
+h1{font-size:22px;margin:0 0 6px}p{color:var(--mut);margin:0 0 14px}
+label{display:block;font-weight:600;font-size:13.5px;margin:14px 0 6px}
+.in{width:100%;background:var(--soft);border:1px solid transparent;color:var(--txt);border-radius:12px;padding:12px 14px;font:15px Inter,sans-serif;outline:none}.in:focus{border-color:var(--c)}
+.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:8px;cursor:pointer;font-weight:400;color:var(--mut)}.opt b{color:var(--txt)}
+.opt input{accent-color:var(--c);margin-top:4px}
+button{width:100%;margin-top:18px;border:0;border-radius:12px;padding:14px;background:var(--c);color:#fff;font:600 15px Inter,sans-serif;cursor:pointer}
+.alert{border-radius:12px;padding:11px 13px;margin-bottom:14px;font-size:13.5px}
+.ok{background:rgba(22,163,74,.12);color:#16a34a}.err{background:rgba(220,38,38,.1);color:#dc2626}
+small{color:var(--mut)}footer{text-align:center;font-size:12.5px;color:var(--mut);margin-top:22px}footer a{color:var(--mut)}
+.hp{position:absolute;left:-9999px}
 </style>
-
-<body>
-    
-    <!-- Start: 404 -->
-    <main class="d-flex justify-content-center align-items-center py-5 min-vh-100">
-        <div class="container">
-            <div class="col-xl-4 col-lg-5 col-md-7 col-sm-9 mx-auto">
-                <div class="nsofts-auth position-relative">
-                    <img src="../assets/images/pattern-1.svg" class="nsofts-auth__pattern-1 position-absolute" alt="">
-                    <img src="../assets/images/pattern-2.svg" class="nsofts-auth__pattern-2 position-absolute" alt="">
-                    <div class="card position-relative">
-                        <form action="" name="datadeletion" method="POST" enctype="multipart/form-data">
-                            <div class="card-body px-4 py-4">
-                            <div class="container mb-3">
-                                <div class="row justify-content-start">
-                                    <div class="col-3 p-0 mb-2">
-                                     <img src="../images/<?php echo APP_LOGO;?>"  class="img-thumbnail" alt="image">
-                                    </div>
-                                    <div class="col-9">
-                                        <h5>Welcome to <?php echo APP_NAME;?>!</h5>
-                                        <p class="m-0 p-0"> By submitting this you can completely delete you account and collected data.</p>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="email" class="form-label fw-semibold">Email or Username</label>
-                                <div class="nsofts-input-icon nsofts-input-icon--left">
-                                    <label for="email" class="nsofts-input-icon__left">
-                                        <i class="ri-user-line"></i>
-                                    </label>
-                                    <input type="text" name="user_email" id="user_email"  class="form-control" autocomplete="off" placeholder="Enter your email or username" required>
-                                </div>
-                            </div>
-                            <div class="mb-3 border-bottom"></div>
-                            <div class="mb-2">
-                                <label class="form-check-label">
-                                    Confirming to Delete your collected data
-                                </label>
-                            </div>
-                            <div class="mb-4">
-                                <button  type="submit" name="submit_clear" class="btn btn-warning btn-lg w-100">Clear Data</button>
-                            </div>
-                            
-                            <div class="mb-3 border-bottom"></div>
-                            <div class="mb-2">
-                                <label class="form-check-label">
-                                    Confirming to Delete your data and Account
-                                </label>
-                            </div>
-                            <div class="mb-3">
-                                <button  type="submit" name="submit_delete" class="btn btn-danger btn-lg w-100">Delete Account & Clear Data</button>
-                            </div>
-                            <label class="form-check-label">
-                               After submitting this you request will be reviewed and your data will be removed with in 7 days, After that you cant restore it.
-                            </label>
-                        </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-    </main>
-    <!-- End: 404 -->
-    
-
-    <!-- Vendor scripts -->
-    <script src="../assets/js/jquery.min.js"></script>
-    <script src="../assets/vendors/bootstrap/bootstrap.min.js"></script>
-    <script src="../assets/vendors/notify/notify.min.js"></script>
-    
-    <?php if (isset($_SESSION['msg'])) { ?>
-        <script type="text/javascript">
-            $('.notifyjs-corner').empty();
-            $.notify(
-            '<?php echo $client_lang[$_SESSION["msg"]]; ?>', {
-                position: "top right",
-                className: '<?= $_SESSION["class"] ?>'
-            }
-            );
-        </script>
-        <?php
-        unset($_SESSION['msg']);
-        unset($_SESSION['class']);
-    }?>
-</body>
-</html>
+</head>
+<body><div class="w">
+<a class="top" href="../ativar.php"><?php if ($logo) { ?><img src="<?php echo e($logo); ?>" alt=""><?php } ?><span><?php echo e($brand['name']); ?></span></a>
+<div class="card">
+    <h1>Excluir meus dados</h1>
+    <p>Peca a exclusao dos dados do seu aparelho e da sua ativacao no <?php echo e($brand['name']); ?>.</p>
+    <?php if ($msg) { ?><div class="alert <?php echo $ok ? 'ok' : 'err'; ?>"><?php echo e($msg); ?></div><?php } ?>
+    <?php if (!$ok) { ?>
+    <form method="post" autocomplete="off">
+        <?php echo lf_csrf_field(); ?>
+        <input type="text" name="website" class="hp" tabindex="-1" aria-hidden="true">
+        <label for="u">E-mail, usuario ou MAC do aparelho</label>
+        <input class="in" id="u" name="user_email" maxlength="190" required placeholder="voce@email.com ou A1:B2:C3:D4:E5:F6">
+        <label>O que deseja fazer</label>
+        <label class="opt"><input type="radio" name="type" value="delete" checked> <span><b>Excluir conta e todos os dados</b><br>Remove a ativacao do aparelho, os dados de acesso e o historico.</span></label>
+        <label class="opt"><input type="radio" name="type" value="clear"> <span><b>Apagar somente os dados coletados</b><br>Remove IP, modelo e registros de acesso.</span></label>
+        <label for="n">Observacao <small>(opcional)</small></label>
+        <textarea class="in" id="n" name="note" rows="3" maxlength="1000"></textarea>
+        <button type="submit">Enviar pedido</button>
+        <p style="margin:12px 0 0;font-size:12.5px">O pedido e analisado e concluido em ate 30 dias. Depois de excluidos, os dados nao podem ser recuperados.</p>
+    </form>
+    <?php } ?>
+</div>
+<footer><?php echo e(lf_disclaimer_text()); ?><br><br><a href="../privacy_policy.php">Privacidade</a> &middot; <a href="../terms.php">Termos</a></footer>
+</div></body></html>

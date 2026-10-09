@@ -105,7 +105,7 @@
                                     <label class="form-label fw-semibold">Nivel</label>
                                     <select name="admin_type" class="form-control" required>
                                         <?php foreach ($roles_allowed as $r) { ?>
-                                            <option value="<?php echo $r; ?>" <?php if ($cur_type === $r) echo 'selected'; ?>><?php echo lf_role_name($r); ?><?php echo $r === ROLE_MASTER ? ' (cria revendas)' : ($r === ROLE_REVENDA ? ' (comum)' : ''); ?></option>
+                                            <option value="<?php echo e($r); ?>" <?php if ($cur_type === $r) echo 'selected'; ?>><?php echo lf_role_name($r); ?><?php echo $r === ROLE_MASTER ? ' (cria revendas)' : ($r === ROLE_REVENDA ? ' (comum)' : ''); ?></option>
                                         <?php } ?>
                                     </select>
                                 </div>

@@ -137,13 +137,13 @@
                                     <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label"> Texto Bienvenida </label>
                                         <div class="col-sm-10">
-                                            <input type="text" class="form-control" name="app_name" id="app_name" value="<?php echo $settings_data['app_name']?>" required="required">
+                                            <input type="text" class="form-control" name="app_name" id="app_name" value="<?php echo e($settings_data['app_name']); ?>" required="required">
                                         </div>
                                     </div>
                                                          <div class="mb-3 row">
                                         <label for="" class="col-sm-2 col-form-label">Titulo </label>
                                         <div class="col-sm-10">
-                                            <input type="text" class="form-control" name="app_titulo" id="app_titulo" value="<?php echo $settings_data['app_titulo']?>" required="required">
+                                            <input type="text" class="form-control" name="app_titulo" id="app_titulo" value="<?php echo e($settings_data['app_titulo']); ?>" required="required">
                                         </div>
                                     </div>
                                     

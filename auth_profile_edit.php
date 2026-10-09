@@ -8,7 +8,7 @@
     $page_save='Save';
     
     if(isset($_SESSION['id'])){
-		$qry="select * from tbl_admin where id='".$_SESSION['id']."'";
+		$qry="select * from tbl_admin where id='".(int)$_SESSION['id']."'";
 		$result=mysqli_query($mysqli,$qry);
 		$row=mysqli_fetch_assoc($result);
 	}
@@ -17,12 +17,8 @@
 	    
 	    if($_FILES['image']['name']!=""){
 	        
-	        $img_res=mysqli_query($mysqli,'SELECT * FROM tbl_admin WHERE id='.$_SESSION['id'].'');
+	        $img_res=mysqli_query($mysqli,'SELECT * FROM tbl_admin WHERE id='.(int)$_SESSION['id']);
             $img_res_row=mysqli_fetch_assoc($img_res);
-            
-            if($img_res_row['image']!=""){
-                unlink('images/'.$img_res_row['image']);
-            }
             
             // so imagens de verdade (bloqueia envio de arquivos .php disfarçados)
             $ext = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
@@ -30,6 +26,10 @@
                 $_SESSION['msg']="15"; $_SESSION['class']='error';
                 header( "Location:auth_profile_edit.php");
                 exit;
+            }
+            // a foto antiga so e apagada depois de validar a nova
+            if($img_res_row['image']!="" && is_file('images/'.basename($img_res_row['image']))){
+                @unlink('images/'.basename($img_res_row['image']));
             }
             $image=rand(0,99999)."_profile.".$ext;
             $tpath1='images/'.$image;
@@ -42,17 +42,17 @@
             }
             
             $data = array( 
-                'email'  =>  mysqli_real_escape_string($mysqli, trim($_POST['email'])),
+                'email'  =>  trim((string)$_POST['email']),
                 'image'  =>  $image
             );
             
         } else {
             $data = array( 
-                'email'  =>  mysqli_real_escape_string($mysqli, trim($_POST['email']))
+                'email'  =>  trim((string)$_POST['email'])
             );
         }
         
-        $channel_edit=Update('tbl_admin', $data, "WHERE id = '".$_SESSION['id']."'");
+        $channel_edit=Update('tbl_admin', $data, "WHERE id = '".(int)$_SESSION['id']."'");
         
 		$_SESSION['msg']="11"; 
 		header( "Location:auth_profile_edit.php");
@@ -61,7 +61,10 @@
 	
 	if(isset($_POST['submit_password'])){
 	    
-	    if($_POST['register_confirm_password'] != $_POST['register_password']){
+	    if(strlen(trim((string)$_POST['register_password'])) < 4){
+	        $_SESSION['msg']="enter_password_admin";
+	        $_SESSION['class']='error';
+	    } else if($_POST['register_confirm_password'] != $_POST['register_password']){
             
             $_SESSION['msg']="error_pass_not_match_admin";
             $_SESSION['class']='error'; 
@@ -69,10 +72,10 @@
        	} else if($_POST['register_confirm_password'] == $_POST['register_password']){
        	    
        	    $data = array(
-              'password'  =>  mysqli_real_escape_string($mysqli, lf_password_hash(trim($_POST['register_password'])))
+              'password'  =>  lf_password_hash(trim($_POST['register_password']))
             );
             
-            $channel_edit=Update('tbl_admin', $data, "WHERE id = '".$_SESSION['id']."'");
+            $channel_edit=Update('tbl_admin', $data, "WHERE id = '".(int)$_SESSION['id']."'");
             
             $_SESSION['msg']="11"; 
             $_SESSION['class']='success'; 

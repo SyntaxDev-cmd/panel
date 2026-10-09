@@ -27,8 +27,44 @@ function lp_defaults() {
         'pay_card'       => '1',
         'pix_minutes'    => '30',
         'check_m3u'      => '1',
-        'color'          => '#7c3aed',
+        'color'          => '#6d5efc',
+        // branding da landing page
+        'brand_name'     => '',           // vazio = nome do painel
+        'brand_logo'     => '',           // arquivo em images/ (vazio = logo do painel)
+        'theme'          => 'auto',       // auto | dark | light
+        'cta_text'       => 'Ativar agora',
+        'footer_text'    => '',
+        'telegram'       => '',
+        'support_email'  => '',
+        'show_steps'     => '1',
+        'show_faq'       => '1',
+        'allow_manual'   => '1',          // aceita servidor + usuario + senha alem do link
+        'default_output' => 'ts',         // formato preferido quando o link nao diz (ts | m3u8)
     );
+}
+
+// marca usada na landing e nas paginas publicas
+function lp_brand() {
+    $c = lp_cfg();
+    $name = trim($c['brand_name']) !== '' ? $c['brand_name'] : (defined('APP_NAME') ? APP_NAME : 'Ativacao');
+    $logo = '';
+    $root = dirname(__DIR__) . '/images/';
+    if ($c['brand_logo'] !== '' && is_file($root . basename($c['brand_logo']))) $logo = 'images/' . basename($c['brand_logo']);
+    else if (defined('APP_LOGO') && APP_LOGO != '' && is_file($root . basename(APP_LOGO))) $logo = 'images/' . basename(APP_LOGO);
+    $color = preg_match('/^#[0-9a-fA-F]{6}$/', $c['color']) ? $c['color'] : '#6d5efc';
+    $theme = in_array($c['theme'], array('auto', 'dark', 'light'), true) ? $c['theme'] : 'auto';
+    return array('name' => $name, 'logo' => $logo, 'color' => $color, 'theme' => $theme);
+}
+function lp_output_label($o) {
+    if ($o === 'm3u8') return 'HLS (.m3u8)';
+    if ($o === 'ts') return 'MPEG-TS (.ts)';
+    return 'Automatico';
+}
+function lp_norm_output($s) {
+    $s = strtolower(trim((string)$s));
+    if (in_array($s, array('m3u8', 'hls', 'mu8', 'm3u8_plus'), true)) return 'm3u8';
+    if (in_array($s, array('ts', 'mpegts', 'mpeg-ts', 'mpgets', 'mpeg_ts'), true)) return 'ts';
+    return '';
 }
 function lp_cfg($key = null) {
     static $cfg = null;
@@ -61,12 +97,16 @@ function lp_base_url() {
 }
 
 // ============================================================
-//  LINK M3U  ->  DNS + usuario + senha
-//  aceita: http://srv.com:8080/get.php?username=U&password=P&type=m3u_plus
-//          http://srv.com:8080/U/P/123   (link de canal/lista no formato Xtream)
+//  LINK DO CLIENTE  ->  DNS + usuario + senha + formato
+//  aceita (com ou sem http://):
+//   http://srv.com:8080/get.php?username=U&password=P&type=m3u_plus&output=ts|mpegts|hls|m3u8
+//   http://srv.com:8080/player_api.php?username=U&password=P   (tambem xmltv.php / panel_api.php)
+//   http://srv.com:8080/live/U/P/123.ts   |  .../live/U/P/123.m3u8  (HLS)
+//   http://srv.com:8080/movie/U/P/1.mp4   |  /series/...  |  /timeshift/U/P/...
+//   http://srv.com:8080/U/P/123           (canal curto, formato Xtream)
 // ============================================================
 function lp_parse_m3u($link) {
-    $link = trim((string)$link);
+    $link = trim(preg_replace('/\s+/', '', (string)$link));
     if ($link === '') return null;
     if (!preg_match('#^https?://#i', $link)) $link = 'http://' . $link;
     $u = parse_url($link);
@@ -75,21 +115,40 @@ function lp_parse_m3u($link) {
     if ($scheme !== 'http' && $scheme !== 'https') return null;
     $base = $scheme . '://' . strtolower($u['host']) . (isset($u['port']) ? ':' . (int)$u['port'] : '');
 
-    $user = ''; $pass = '';
-    if (!empty($u['query'])) {
-        parse_str($u['query'], $q);
-        if (isset($q['username']) && is_string($q['username'])) $user = $q['username'];
-        if (isset($q['password']) && is_string($q['password'])) $pass = $q['password'];
+    $user = ''; $pass = ''; $output = '';
+    $q = array();
+    if (!empty($u['query'])) parse_str($u['query'], $q);
+    foreach (array(array('username', 'password'), array('user', 'pass'), array('u', 'p')) as $pair) {
+        if (isset($q[$pair[0]], $q[$pair[1]]) && is_string($q[$pair[0]]) && is_string($q[$pair[1]]) && $q[$pair[0]] !== '') { $user = $q[$pair[0]]; $pass = $q[$pair[1]]; break; }
     }
-    if ($user === '' && !empty($u['path'])) {
-        // formato /live/U/P/123.ts, /movie/U/P/1.mp4 ou /U/P/123
-        $parts = array_values(array_filter(explode('/', $u['path']), 'strlen'));
-        if (count($parts) >= 3 && in_array(strtolower($parts[0]), array('live', 'movie', 'series'), true)) array_shift($parts);
-        if (count($parts) >= 2 && strpos($parts[0], '.') === false) { $user = rawurldecode($parts[0]); $pass = rawurldecode($parts[1]); }
+    if (isset($q['output']) && is_string($q['output'])) $output = lp_norm_output($q['output']);
+
+    $path = isset($u['path']) ? $u['path'] : '';
+    if (preg_match('#\.(m3u8)$#i', $path)) $output = 'm3u8';
+    else if (preg_match('#\.(ts)$#i', $path)) $output = 'ts';
+
+    if ($user === '' && $path !== '') {
+        $parts = array_values(array_filter(explode('/', $path), 'strlen'));
+        if (count($parts) >= 3 && in_array(strtolower($parts[0]), array('live', 'movie', 'series', 'timeshift', 'hls'), true)) array_shift($parts);
+        if (count($parts) >= 2 && strpos($parts[0], '.') === false && strpos($parts[1], '.') === false) {
+            $user = rawurldecode($parts[0]); $pass = rawurldecode($parts[1]);
+        }
     }
+    // caminho com subpasta (ex.: http://srv.com/painel/get.php): mantem a pasta na DNS
+    if (preg_match('#^(.*)/(get|player_api|xmltv|panel_api)\.php$#i', $path, $mm) && $mm[1] !== '') $base .= rtrim($mm[1], '/');
+
     $user = trim($user); $pass = trim($pass);
     if ($user === '' || $pass === '' || strlen($user) > 120 || strlen($pass) > 190 || strlen($base) > 255) return null;
-    return array('base' => $base, 'user' => $user, 'pass' => $pass);
+    return array('base' => $base, 'user' => $user, 'pass' => $pass, 'output' => $output);
+}
+
+// servidor + usuario + senha digitados separadamente
+function lp_parse_manual($server, $user, $pass) {
+    $server = trim((string)$server); $user = trim((string)$user); $pass = trim((string)$pass);
+    if ($server === '' || $user === '' || $pass === '') return null;
+    $m = lp_parse_m3u(rtrim($server, '/') . '/get.php?username=' . rawurlencode($user) . '&password=' . rawurlencode($pass));
+    if ($m) { $m['user'] = $user; $m['pass'] = $pass; }
+    return $m;
 }
 
 // O host aponta para a internet publica? (evita usar o servidor do painel para acessar a rede interna)
@@ -307,19 +366,7 @@ function lp_activate_device($order) {
     $ownerId = (int)$owner['id'];
     $mac = lf_norm_mac($order['mac']);
 
-    // DNS do link M3U (reaproveita se ja existir para este dono)
-    $base = rtrim($order['dns_base'], '/');
-    $dns = db_row("SELECT id FROM tbl_dns WHERE owner_id = ? AND (dns_base = ? OR dns_backup = ?) ORDER BY (origin = 'site') ASC, id ASC LIMIT 1", array($ownerId, $base, $base));
-    if ($dns) {
-        $dnsId = (int)$dns['id'];
-        db_query("UPDATE tbl_dns SET status = 1 WHERE id = ? AND origin = 'site'", array($dnsId));
-    } else {
-        $host = parse_url($base, PHP_URL_HOST);
-        // cliente = '' : esta DNS nao entra na lista de servidores dos apps no modo direto
-        db_query("INSERT INTO tbl_dns (dns_title, dns_base, dns_backup, status, cliente, owner_id, partner_code, created_at, origin) VALUES (?, ?, '', 1, '', ?, ?, ?, ?)",
-            array('Site: ' . $host, $base, $ownerId, lf_new_partner_code(), $now, LP_SOURCE));
-        $dnsId = db_last_id();
-    }
+    $dnsId = lp_dns_for($ownerId, $order['dns_base']);
 
     // vencimento: renova somando ao que ainda resta (reprocessar o mesmo pedido nao soma de novo)
     $dev = db_row("SELECT * FROM tbl_devices WHERE owner_id = ? AND (mac = ? OR device_key = ?) ORDER BY (act_user <> '') DESC, id ASC LIMIT 1", array($ownerId, $mac, $mac));
@@ -331,7 +378,7 @@ function lp_activate_device($order) {
     $note = substr($note, 0, 120);
 
     if ($dev) {
-        db_query("UPDATE tbl_devices SET mac = ?, note = ?, act_dns_id = ?, dns_id = ?, act_user = ?, act_pass = ?, act_updated = ?, act_expires = ?, act_source = ?, is_auto = 0, status = 1 WHERE id = ?",
+        db_query("UPDATE tbl_devices SET mac = ?, note = ?, act_dns_id = ?, dns_id = ?, act_user = ?, act_pass = ?, act_updated = ?, act_expires = ?, act_source = ?, is_auto = 0 WHERE id = ?",
             array($mac, $note, $dnsId, $dnsId, $order['m3u_user'], $order['m3u_pass'], $now, $expires, LP_SOURCE, (int)$dev['id']));
         $devId = (int)$dev['id'];
     } else {
@@ -340,8 +387,32 @@ function lp_activate_device($order) {
             array($ownerId, $dnsId, $mac, $mac, $note, $dnsId, $order['m3u_user'], $order['m3u_pass'], $now, $expires, LP_SOURCE, $now));
         $devId = db_last_id();
     }
+    if (isset($order['output'])) db_query("UPDATE tbl_devices SET act_output = ? WHERE id = ?", array(lp_norm_output($order['output']), $devId));
+    // o mesmo MAC ativado em outro registro deixaria duas ativacoes: vale a do site (mais nova)
+    db_query("UPDATE tbl_devices SET act_user = '', act_pass = '', act_dns_id = 0 WHERE mac = ? AND id <> ? AND act_user <> '' AND act_source = ?", array($mac, $devId, LP_SOURCE));
     db_query("UPDATE tbl_lp_orders SET device_id = ?, expires_at = ? WHERE id = ?", array($devId, $expires, (int)$order['id']));
     return true;
+}
+
+// DNS de um servidor para o dono (reaproveita a que ja existir; cria uma "Site: host" se nao houver)
+function lp_dns_find($ownerId, $base) {
+    $base = rtrim((string)$base, '/');
+    $dns = db_row("SELECT id FROM tbl_dns WHERE owner_id = ? AND (dns_base = ? OR dns_base = ? OR dns_backup = ?) ORDER BY (origin = 'site') ASC, id ASC LIMIT 1", array((int)$ownerId, $base, $base . '/', $base));
+    return $dns ? (int)$dns['id'] : 0;
+}
+function lp_dns_for($ownerId, $base) {
+    $base = rtrim((string)$base, '/');
+    $found = lp_dns_find($ownerId, $base);
+    $dns = $found ? array('id' => $found) : null;
+    if ($dns) {
+        db_query("UPDATE tbl_dns SET status = 1 WHERE id = ? AND origin = 'site'", array((int)$dns['id']));
+        return (int)$dns['id'];
+    }
+    $host = parse_url($base, PHP_URL_HOST);
+    // cliente = '' : esta DNS nao entra na lista de servidores dos apps no modo direto
+    db_query("INSERT INTO tbl_dns (dns_title, dns_base, dns_backup, status, cliente, owner_id, partner_code, created_at, origin) VALUES (?, ?, '', 1, '', ?, ?, ?, ?)",
+        array('Site: ' . $host, $base, (int)$ownerId, lf_new_partner_code(), time(), LP_SOURCE));
+    return db_last_id();
 }
 
 // situacao atual de um MAC (para a consulta publica: nunca mostra usuario/senha)

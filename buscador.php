@@ -1,8 +1,8 @@
 <?php
-header('Content-Type: application/json');
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Origin: *');
 ini_set('display_errors', 0); // No mostrar errores al usuario
 ini_set('log_errors', 1);     // Registrar errores en el log
-ini_set('error_log', '/var/log/debug-buscador.log'); // Ruta del log (asegúrate de tener permisos)
 error_reporting(E_ALL);
 
 // Función para respuestas de error
@@ -26,18 +26,31 @@ if (empty($baseurl)) {
     errorResponse("Falta el parámetro baseurl.");
 }
 
-$baseurl = rtrim($baseurl, '/');
+$baseurl = rtrim(trim((string)$baseurl), '/');
+$username = (string)$username; $password = (string)$password; $search = (string)$search;
+
+// so servidores publicos http/https (impede usar o painel para acessar a rede interna)
+$bu = parse_url($baseurl);
+if (!$bu || empty($bu['host']) || !in_array(strtolower(isset($bu['scheme']) ? $bu['scheme'] : ''), array('http', 'https'), true)) {
+    errorResponse("baseurl invalida.");
+}
+$ips = filter_var($bu['host'], FILTER_VALIDATE_IP) ? array($bu['host']) : @gethostbynamel($bu['host']);
+if (!$ips) errorResponse("Servidor nao encontrado.");
+foreach ($ips as $ip) {
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) errorResponse("Servidor nao permitido.");
+}
+$qUser = rawurlencode($username); $qPass = rawurlencode($password);
 
 // Seleccionar tipo de contenido
 switch ($tipoid) {
     case '1':
-        $url = "$baseurl/player_api.php?username=$username&password=$password&action=get_live_streams";
+        $url = "$baseurl/player_api.php?username=$qUser&password=$qPass&action=get_live_streams";
         break;
     case '2':
-        $url = "$baseurl/player_api.php?username=$username&password=$password&action=get_vod_streams";
+        $url = "$baseurl/player_api.php?username=$qUser&password=$qPass&action=get_vod_streams";
         break;
     case '3':
-        $url = "$baseurl/player_api.php?username=$username&password=$password&action=get_series";
+        $url = "$baseurl/player_api.php?username=$qUser&password=$qPass&action=get_series";
         break;
     default:
         errorResponse("Tipo de búsqueda no válido.");
@@ -48,8 +61,12 @@ $ch = curl_init();
 curl_setopt_array($ch, [
     CURLOPT_URL => $url,
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT => 600,
+    CURLOPT_TIMEOUT => 90,
+    CURLOPT_CONNECTTIMEOUT => 10,
     CURLOPT_FOLLOWLOCATION => true,
+    CURLOPT_MAXREDIRS => 3,
+    CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+    CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
     CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/114.0.0.0 Safari/537.36'
 ]);
 
@@ -79,9 +96,10 @@ if (!is_array($data)) {
 
 // Agregar URL de reproducción
 foreach ($data as &$stream) {
-    if (isset($stream['stream_id'], $stream['container_extension'])) {
+    if (!is_array($stream)) continue;
+    if (isset($stream['stream_id']) && (isset($stream['container_extension']) || $tipoid == 1)) {
         $id = $stream['stream_id'];
-        $ext = $stream['container_extension'];
+        $ext = isset($stream['container_extension']) ? $stream['container_extension'] : 'ts';
 
         if ($tipoid == 2) {
             $stream['url_reproduccion'] = "$baseurl/movie/$username/$password/$id.$ext";
@@ -96,12 +114,13 @@ foreach ($data as &$stream) {
         $stream['url_reproduccion'] = "";
     }
 }
+unset($stream);
 
 // Buscar coincidencias si hay término
 function searchStreams($streams, $term) {
     $results = [];
     foreach ($streams as $stream) {
-        if (isset($stream['name']) && stripos($stream['name'], $term) !== false) {
+        if (is_array($stream) && isset($stream['name']) && stripos((string)$stream['name'], $term) !== false) {
             $results[] = $stream;
         }
     }

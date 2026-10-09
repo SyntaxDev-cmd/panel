@@ -17,13 +17,17 @@ $cliente = mysqli_real_escape_string($mysqli, isset($_SESSION['admin_name']) ? $
 
 $qry = "SELECT * FROM tbl_app WHERE cliente = '$cliente' LIMIT 1";
 $result = mysqli_query($mysqli, $qry);
-$settings_data = mysqli_fetch_assoc($result);
+$settings_data = $result ? mysqli_fetch_assoc($result) : null;
+// usuario que ainda nao configurou a aparencia: campos vazios (evita avisos do PHP)
+$lf_api_has_row = is_array($settings_data);
+if (!$lf_api_has_row) $settings_data = array('app_name' => '', 'app_titulo' => '', 'app_logo' => '', 'bg_main' => '', 'bg_login' => '', 'bg_banner' => '');
 
 if (isset($_POST['submit_general'])) {
 
     // Función para redimensionar imágenes y manejar transparencia en PNG
     function resizeImage($file, $filename, $width, $height) {
-        $image_type = exif_imagetype($file['tmp_name']);
+        $info = @getimagesize($file['tmp_name']);
+        $image_type = $info ? $info[2] : 0;
         $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
 
         // Cargar imagen según tipo
@@ -84,53 +88,31 @@ if (isset($_POST['submit_general'])) {
         return $filename;
     }
 
-    // BG Login
-    if ($_FILES['bg_login']['name'] != "") {
-        if ($settings_data['bg_login'] != "") {
-            unlink('images/' . $settings_data['bg_login']);
-        }
-        $bg_login = rand(0, 99999) . "_bg_login." . pathinfo($_FILES['bg_login']['name'], PATHINFO_EXTENSION);
-        $bg_login = resizeImage($_FILES['bg_login'], $bg_login, 500, 500);
-    } else {
-        $bg_login = $settings_data['bg_login'];
+    // envia a imagem nova e so entao apaga a antiga (antes um arquivo invalido apagava a imagem atual)
+    function lf_api_upload($field, $w, $h, $current) {
+        if (empty($_FILES[$field]['name']) || !is_uploaded_file($_FILES[$field]['tmp_name'])) return (string)$current;
+        $name = rand(0, 99999) . '_' . $field . '.jpg';
+        $saved = resizeImage($_FILES[$field], $name, $w, $h);
+        if (!$saved) { lf_flash('Imagem invalida (use PNG, JPG ou GIF).', 'error'); return (string)$current; }
+        if ($current != '' && $current !== $saved && is_file('images/' . basename($current))) @unlink('images/' . basename($current));
+        return $saved;
     }
+
+    // BG Login
+    $bg_login = lf_api_upload('bg_login', 500, 500, $settings_data ? $settings_data['bg_login'] : '');
 
     // BG Main
-    if ($_FILES['bg_main']['name'] != "") {
-        if ($settings_data['bg_main'] != "") {
-            unlink('images/' . $settings_data['bg_main']);
-        }
-        $bg_main = rand(0, 99999) . "_bg_main." . pathinfo($_FILES['bg_main']['name'], PATHINFO_EXTENSION);
-        $bg_main = resizeImage($_FILES['bg_main'], $bg_main, 1920, 1080);
-    } else {
-        $bg_main = $settings_data['bg_main'];
-    }
+    $bg_main = lf_api_upload('bg_main', 1920, 1080, $settings_data ? $settings_data['bg_main'] : '');
 
     // BG Banner (Portada de Facebook)
-    if ($_FILES['bg_banner']['name'] != "") {
-        if ($settings_data['bg_banner'] != "") {
-            unlink('images/' . $settings_data['bg_banner']);
-        }
-        $bg_banner = rand(0, 99999) . "_bg_banner." . pathinfo($_FILES['bg_banner']['name'], PATHINFO_EXTENSION);
-        $bg_banner = resizeImage($_FILES['bg_banner'], $bg_banner, 500, 300);
-    } else {
-        $bg_banner = $settings_data['bg_banner'];
-    }
+    $bg_banner = lf_api_upload('bg_banner', 500, 300, $settings_data ? $settings_data['bg_banner'] : '');
 
     // App Logo (redimensionar a 215x75)
-    if ($_FILES['app_logo']['name'] != "") {
-        if ($settings_data['app_logo'] != "") {
-            unlink('images/' . $settings_data['app_logo']);
-        }
-        $app_logo = rand(0, 99999) . "_app_logo." . pathinfo($_FILES['app_logo']['name'], PATHINFO_EXTENSION);
-        $app_logo = resizeImage($_FILES['app_logo'], $app_logo, 800, 500);
-    } else {
-        $app_logo = $settings_data['app_logo'];
-    }
+    $app_logo = lf_api_upload('app_logo', 800, 500, $settings_data ? $settings_data['app_logo'] : '');
 
     // App Name, Titulo, and Client
-    $app_name = mysqli_real_escape_string($mysqli, isset($_POST['app_name']) ? $_POST['app_name'] : $settings_data['app_name']);
-    $app_titulo = mysqli_real_escape_string($mysqli, isset($_POST['app_titulo']) ? $_POST['app_titulo'] : $settings_data['app_titulo']);
+    $app_name = substr(trim((string)(isset($_POST['app_name']) ? $_POST['app_name'] : $settings_data['app_name'])), 0, 255);
+    $app_titulo = substr(trim((string)(isset($_POST['app_titulo']) ? $_POST['app_titulo'] : $settings_data['app_titulo'])), 0, 255);
 
     // Comprobamos si el cliente ya está registrado
     $qry_check = "SELECT * FROM tbl_app WHERE cliente = '$cliente'";
@@ -143,7 +125,7 @@ if (isset($_POST['submit_general'])) {
         'app_name'     => $app_name,
         'app_logo'     => $app_logo,
         'app_titulo'   => $app_titulo,
-        'cliente'      => $cliente,
+        'cliente'      => isset($_SESSION['admin_name']) ? (string)$_SESSION['admin_name'] : '',
     );
 
     if (mysqli_num_rows($result_check) > 0) {
@@ -156,7 +138,7 @@ if (isset($_POST['submit_general'])) {
         exit;
     } else {
         // El cliente no existe, insertamos una nueva fila
-        $settings_insert = Insert('tbl_app', array_map('stripslashes', $data));
+        $settings_insert = Insert('tbl_app', $data);
 
         $_SESSION['msg'] = "11";
         $_SESSION['class'] = "success";

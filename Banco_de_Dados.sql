@@ -403,3 +403,20 @@ INSERT INTO `tbl_lp_plans` (`name`, `days`, `price`, `status`, `sort`) VALUES
 ('Mensal', 30, 20.00, 1, 1),
 ('Trimestral', 90, 50.00, 1, 2),
 ('Anual', 365, 150.00, 1, 3);
+
+-- ------------------------------------------------------------
+--  v6: formato (ts | m3u8) por ativacao, pedidos de exclusao de dados
+--  (o painel tambem cria sozinho ao abrir e troca as politicas de exemplo
+--   pelos modelos de reprodutor de midia aceitos nas lojas)
+-- ------------------------------------------------------------
+ALTER TABLE `tbl_devices` ADD COLUMN `act_output` VARCHAR(10) NOT NULL DEFAULT '';
+ALTER TABLE `tbl_lp_orders` ADD COLUMN `output` VARCHAR(10) NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS `tbl_policy_deletion` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `policy_type` VARCHAR(40) NOT NULL DEFAULT '',
+  `user_email` VARCHAR(190) NOT NULL DEFAULT '',
+  `report_msg` TEXT NULL,
+  `deletion_on` INT NOT NULL DEFAULT 0,
+  `status` TINYINT(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

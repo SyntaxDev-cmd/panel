@@ -19,7 +19,7 @@
 //
 //  4) Ativacao por MAC (a revenda cadastra o MAC do aparelho no painel com DNS + usuario + senha):
 //     POST api2.php?action=device_login   { mac, device_id, platform, model, app_version, app }
-//     -> { status:"success", servidores:[{title, hdPosterUrl}], username, password, code, activation }
+//     -> { status:"success", servidores:[{title, hdPosterUrl}], username, password, code, output, expires, activation }
 //     -> { status:"none" }  (MAC sem ativacao: o app mostra o login normal)
 //     -> { status:"blocked", message }
 //
@@ -147,6 +147,9 @@ switch ($action) {
             'password' => $act['act_pass'],
             'code' => $act['partner_code'],
             'name' => $act['note'],
+            // formato preferido do cliente (ts | m3u8). Campo extra: apps antigos simplesmente ignoram
+            'output' => (isset($act['act_output']) && $act['act_output'] !== '') ? $act['act_output'] : 'ts',
+            'expires' => isset($act['act_expires']) ? (int)$act['act_expires'] : 0,
             'activation' => lf_activation_sig($act)
         ));
     }
