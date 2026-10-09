@@ -1,0 +1,34 @@
+<?php
+    $client_lang = array();
+    $client_lang['1'] = "Informe o usuario.";
+    $client_lang['2'] = "Informe a senha.";
+    $client_lang['3'] = "Mensagem enviada.";
+    $client_lang['4'] = "Usuario ou senha incorretos.";
+    $client_lang['5'] = "Mensagem nao enviada.";
+    $client_lang['6'] = "A senha foi enviada para o seu email.";
+    $client_lang['7'] = "Email nao enviado. Tente novamente.";
+    $client_lang['8'] = "Email nao encontrado.";
+    $client_lang['9'] = "Informe o email.";
+    $client_lang['10'] = "Adicionado com sucesso.";
+    $client_lang['11'] = "Atualizado com sucesso.";
+    $client_lang['12'] = "Excluido com sucesso.";
+    $client_lang['13'] = "Ativado com sucesso.";
+    $client_lang['14'] = "Desativado com sucesso.";
+    $client_lang['15'] = "Selecione uma imagem.";
+    $client_lang['16'] = "Notificacao enviada.";
+    $client_lang['17'] = "Login realizado com sucesso.";
+    $client_lang['18'] = "Codigo de compra incorreto!";
+    $client_lang['19'] = "Verificado com sucesso.";
+    $client_lang['20'] = "A senha foi enviada para o seu email.";
+    $client_lang['21'] = "Email nao encontrado!";
+    $client_lang['22'] = " enviado para o seu email.";
+    $client_lang['email_exist'] = "Este email ja existe!";
+    $client_lang['invalid_email_format'] = "Formato de email invalido!";
+    $client_lang['demo_msg'] = "Voce nao tem permissao para esta acao!";
+    $client_lang['register_success_admin'] = "Cadastro concluido. Aguarde a aprovacao do administrador.";
+    $client_lang['register_fail_admin'] = "Falha no cadastro!";
+    $client_lang['enter_password_admin'] = "Informe a senha!";
+    $client_lang['enter_confirm_password_admin'] = "Confirme a senha!";
+    $client_lang['error_pass_not_match_admin'] = "As senhas nao conferem!";
+    $client_lang['approve_admin'] = "Sua conta esta desativada. Fale com o administrador.";
+?>
